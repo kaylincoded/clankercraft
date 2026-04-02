@@ -8,7 +8,7 @@
   <b>Claude yearns for the mines.</b> an MCP server that connects LLMs to a live Minecraft world via <a href="https://github.com/PrismarineJS/mineflayer">Mineflayer</a>.
 </p>
 
-https://github.com/kaylincoded/clankercraft/releases/download/v2.0.4/clankertown-480p.webm
+https://github.com/user-attachments/assets/f567d526-3b80-4e54-86e3-e24981f6c288
 
 <p align="center">
   <img src="https://img.shields.io/badge/Minecraft-1.21.11-62b47a?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0yIDJoMjB2MjBIMnoiLz48L3N2Zz4=" />
