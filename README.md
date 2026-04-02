@@ -1,48 +1,79 @@
-# Minecraft MCP Server
+<h1 align="center">
+  <br>
+  ⛏️ clankercraft
+  <br>
+</h1>
 
-<a href="https://github.com/yuniko-software/minecraft-mcp-server/actions">
-  <img alt="CI" src="https://github.com/yuniko-software/minecraft-mcp-server/actions/workflows/build.yml/badge.svg">
-</a>
-<a href="https://github.com/yuniko-software">
-  <img alt="Contribution Welcome" src="https://img.shields.io/badge/Contribution-Welcome-blue">
-</a>
-<a href="https://github.com/yuniko-software/minecraft-mcp-server/releases/latest">
-  <img alt="Latest Release" src="https://img.shields.io/github/v/release/yuniko-software/minecraft-mcp-server?label=Latest%20Release">
-</a>
+<p align="center">
+  <b>let Claude play Minecraft.</b> an MCP server that connects LLMs to a live Minecraft world via <a href="https://github.com/PrismarineJS/mineflayer">Mineflayer</a>.
+</p>
 
-<img width="2063" height="757" alt="image" src="https://github.com/user-attachments/assets/3f0f0438-f079-4226-90bd-87b9e1311d19" />
+<p align="center">
+  <img src="https://img.shields.io/badge/Minecraft-1.21.11-62b47a?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0yIDJoMjB2MjBIMnoiLz48L3N2Zz4=" />
+  <img src="https://img.shields.io/badge/Protocol-MCP-b4befe?style=flat-square" />
+  <img src="https://img.shields.io/badge/Runtime-Node_%3E%3D20-339933?style=flat-square&logo=node.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/Claude_Code-Skills_Included-cba6f7?style=flat-square" />
+</p>
 
-___
+---
 
-> [!IMPORTANT]
-> Currently supports Minecraft version 1.21.11. Newer versions may not work with this MCP server, but we will add support as soon as possible.
+## What It Does
 
-https://github.com/user-attachments/assets/6f17f329-3991-4bc7-badd-7cde9aacb92f
+A bot joins your Minecraft server and exposes 25 tools over [Model Context Protocol](https://modelcontextprotocol.io). Claude (or any MCP client) can then move, build, mine, craft, chat, and scan the world — all through natural language.
 
-A Minecraft bot powered by large language models and [Mineflayer API](https://github.com/PrismarineJS/mineflayer). This bot uses the [Model Context Protocol](https://github.com/modelcontextprotocol) (MCP) to enable Claude and other supported models to control a Minecraft character.
+Ships with **Claude Code skills** — battle-tested building patterns so the LLM knows _how_ to build, not just _what tools exist_.
 
-<a href="https://glama.ai/mcp/servers/@yuniko-software/minecraft-mcp-server">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@yuniko-software/minecraft-mcp-server/badge" alt="mcp-minecraft MCP server" />
-</a>
+## What's Inside
 
-## Prerequisites
+```
+├── src/
+│   ├── main.ts              MCP server entrypoint
+│   ├── bot-connection.ts    Mineflayer bot lifecycle
+│   ├── config.ts            CLI arg parsing (--host, --port, --username)
+│   └── tools/
+│       ├── block-tools.ts       place, dig, scan, find blocks & signs
+│       ├── chat-tools.ts        send & read chat messages
+│       ├── crafting-tools.ts    recipes, crafting, ingredient checks
+│       ├── entity-tools.ts      find entities
+│       ├── flight-tools.ts      creative flight
+│       ├── furnace-tools.ts     smelting
+│       ├── gamestate-tools.ts   gamemode detection
+│       ├── inventory-tools.ts   list, find, equip items
+│       └── position-tools.ts    move, look, jump, teleport
+├── .claude/skills/
+│   ├── minecraft-player/        how to build efficiently with /fill
+│   └── minecraft-urban-planner/ architectural patterns & material palettes
+├── tools/world-scanner/         Go tool — scan .minecraft saves offline
+└── tests/
+```
 
-- Git
-- Node.js (>= 20.10.0)
-- A running Minecraft game (the setup below was tested with Minecraft 1.21.8 Java Edition included in Microsoft Game Pass)
-- An MCP-compatible client. Claude Desktop will be used as an example, but other MCP clients are also supported
+## Skills — What Makes This Different
 
-## Getting started
+Most MCP servers give the LLM tools and hope for the best. This one ships opinionated skills learned from hundreds of hours of in-game iteration:
 
-This bot is designed to be used with Claude Desktop through the Model Context Protocol (MCP).
+### `minecraft-player`
+The building fundamentals. Stuff the LLM gets wrong without guidance:
+- **Use `/fill`, not `place-block`** — one command places an entire wall; `place-block` needs chunk loading and has 1-block reach
+- **Never send commands in parallel** — Minecraft chat rate-limits; only the first goes through
+- **Verify with `scan-area`** — catch silently dropped commands before moving on
+- **Real doors, not air gaps** — blockstate syntax for doors, pressure plates, redstone
 
-### Run Minecraft
+### `minecraft-urban-planner`
+Architectural patterns for builds that actually look good:
+- **Material mixing** — never one material per wall; mix 3-5 from the same tonal family
+- **Facade depth** — recessed windows, stair sills, cornice projections
+- **Floor spacing** — 5 blocks per floor (1 plate + 4 air)
+- **Three palettes** — gray (andesite/concrete), warm (sandstone/birch), light (diorite/quartz)
 
-Create a singleplayer world and open it to LAN (`ESC -> Open to LAN`). Bot will try to connect using port `25565` and hostname `localhost`. These parameters could be configured in `claude_desktop_config.json` on a next step. 
+## Quick Start
 
-### MCP Configuration
+### 1. Run a Minecraft Server
 
-Make sure that [Claude Desktop](https://claude.ai/download) is installed. Open `File -> Settings -> Developer -> Edit Config`. It should open installation directory. Find file with a name `claude_desktop_config.json` and insert the following code:
+Any Java Edition 1.21.11 server. For singleplayer, open to LAN (`ESC → Open to LAN`).
+
+### 2. Configure Your MCP Client
+
+**Claude Desktop** — edit `claude_desktop_config.json`:
 
 ```json
 {
@@ -51,83 +82,91 @@ Make sure that [Claude Desktop](https://claude.ai/download) is installed. Open `
       "command": "npx",
       "args": [
         "-y",
-        "github:yuniko-software/minecraft-mcp-server",
-        "--host",
-        "localhost",
-        "--port",
-        "25565",
-        "--username",
-        "ClaudeBot"
+        "github:kaylincoded/clankercraft",
+        "--host", "localhost",
+        "--port", "25565",
+        "--username", "ClaudeBot"
       ]
     }
   }
 }
 ```
 
-Double-check that right `--port` and `--host` parameters were used. Make sure to completely reboot the Claude Desktop application (should be closed in OS tray). 
+**Claude Code** — add to `.claude/settings.json`:
 
-## Running
+```json
+{
+  "mcpServers": {
+    "minecraft": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "github:kaylincoded/clankercraft",
+        "--host", "localhost",
+        "--port", "25565",
+        "--username", "ClaudeBot"
+      ]
+    }
+  }
+}
+```
 
-Make sure Minecraft game is running and the world is opened to LAN. Then start Claude Desktop application and the bot should join the game. 
+### 3. Talk to It
 
-**It could take some time for Claude Desktop to boot the MCP server**. The marker that the server has booted successfully:
+> "Build a small Japanese-style house near my position"
 
-<img width="885" height="670" alt="image" src="https://github.com/user-attachments/assets/ccbb42f8-6544-462c-8ac1-8af13ddfcddd" />
+The bot joins, Claude reads the skills, and building starts.
 
-You can give bot any commands through any active Claude Desktop chat. You can also upload images of buildings and ask bot to build them 😁
+## Tools (25)
 
-Don't forget to mention that bot should do something in Minecraft in your prompt. Because saying this is a trigger to run MCP server. It will ask for your permissions.
+| Category | Tools |
+|---|---|
+| **Blocks** | `place-block` `dig-block` `get-block-info` `find-block` `scan-area` `read-sign` `find-signs` |
+| **Movement** | `get-position` `move-to-position` `look-at` `jump` `move-in-direction` `fly-to` |
+| **Inventory** | `list-inventory` `find-item` `equip-item` |
+| **Crafting** | `list-recipes` `get-recipe` `can-craft` `craft-item` |
+| **Chat** | `send-chat` `read-chat` |
+| **World** | `detect-gamemode` `find-entity` `smelt-item` |
 
-Using Claude Sonnet could give you some interesting results. The bot-agent would be really smart 🫡
+## World Scanner (Offline)
 
-Example usage: [shared Claude chat](https://claude.ai/share/535d5f69-f102-4cdb-9801-f74ea5709c0b)
+Analyze any `.minecraft` save without a running server. Written in Go, scans 15M blocks/sec.
 
-## Available Commands
+```bash
+cd tools/world-scanner
+go build -o world-scanner .
+./world-scanner "/path/to/world" --bounds minX minY minZ maxX maxY maxZ --json output.json
+```
 
-Once connected to a Minecraft server, Claude can use these commands:
+Use it to study reference builds before asking Claude to reproduce them.
 
-### Movement
-- `get-position` - Get the current position of the bot
-- `move-to-position` - Move to specific coordinates
-- `look-at` - Make the bot look at specific coordinates
-- `jump` - Make the bot jump
-- `move-in-direction` - Move in a specific direction for a duration
+## Config
 
-### Flight
-- `fly-to` - Make the bot fly directly to specific coordinates
+```bash
+cp .env.example .env
+```
 
-### Inventory
-- `list-inventory` - List all items in the bot's inventory
-- `find-item` - Find a specific item in inventory
-- `equip-item` - Equip a specific item
+| Variable | Default | Description |
+|---|---|---|
+| `MC_HOST` | `localhost` | Minecraft server address |
+| `MC_PORT` | `25565` | Server port |
+| `MC_USERNAME` | `LLMBot` | Bot's in-game name |
 
-### Block Interaction
-- `place-block` - Place a block at specified coordinates
-- `dig-block` - Dig a block at specified coordinates
-- `get-block-info` - Get information about a block
-- `find-block` - Find the nearest block of a specific type
+These map to CLI args (`--host`, `--port`, `--username`) when running directly.
 
-### Furnace
-- `smelt-item` - Smelt items using a furnace-like block
+## Development
 
-### Entity Interaction
-- `find-entity` - Find the nearest entity of a specific type
-
-### Communication
-- `send-chat` - Send a chat message in-game
-- `read-chat` - Get recent chat messages from players
-
-### Game State
-- `detect-gamemode` - Detect the gamemode on game
+```bash
+git clone git@github.com:kaylincoded/clankercraft.git
+cd minecraft-mcp-server
+npm install
+npm run dev -- --host localhost --port 25565
+```
 
 ## Contributing
 
-Feel free to submit pull requests or open issues for improvements. All refactoring commits, functional and test contributions, issues and discussion are greatly appreciated!
+PRs and issues welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-To get started with contributing, please see [CONTRIBUTING.md](CONTRIBUTING.md).
+## License
 
----
-
-⭐ If you find this project useful, please consider giving it a star on GitHub! ⭐
-
-Your support helps make this project more visible to other people who might benefit from it.
+[MIT](LICENSE)

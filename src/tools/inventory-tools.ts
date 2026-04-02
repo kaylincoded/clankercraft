@@ -44,12 +44,12 @@ export function registerInventoryTools(factory: ToolFactory, getBot: () => minef
     async ({ nameOrType }) => {
       const bot = getBot();
       const items = bot.inventory.items();
-      const item = items.find((item) =>
-        item.name.includes(nameOrType.toLowerCase())
-      );
+      const searchName = nameOrType.toLowerCase();
+      const exactMatch = items.find((item) => item.name === searchName);
+      const partialMatch = exactMatch ?? items.find((item) => item.name.includes(searchName));
 
-      if (item) {
-        return factory.createResponse(`Found ${item.count} ${item.name} in inventory (slot ${item.slot})`);
+      if (partialMatch) {
+        return factory.createResponse(`Found ${partialMatch.count} ${partialMatch.name} in inventory (slot ${partialMatch.slot})`);
       } else {
         return factory.createResponse(`Couldn't find any item matching '${nameOrType}' in inventory`);
       }
@@ -66,9 +66,9 @@ export function registerInventoryTools(factory: ToolFactory, getBot: () => minef
     async ({ itemName, destination = 'hand' }) => {
       const bot = getBot();
       const items = bot.inventory.items();
-      const item = items.find((item) =>
-        item.name.includes(itemName.toLowerCase())
-      );
+      const searchName = itemName.toLowerCase();
+      const exactMatch = items.find((item) => item.name === searchName);
+      const item = exactMatch ?? items.find((item) => item.name.includes(searchName));
 
       if (!item) {
         return factory.createResponse(`Couldn't find any item matching '${itemName}' in inventory`);

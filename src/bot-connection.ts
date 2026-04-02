@@ -2,6 +2,7 @@ import mineflayer from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 const { pathfinder, Movements } = pathfinderPkg;
 import minecraftData from 'minecraft-data';
+import { mineflayer as mineflayerViewer } from 'prismarine-viewer';
 
 const SUPPORTED_MINECRAFT_VERSION = '1.21.11';
 
@@ -50,12 +51,17 @@ export class BotConnection {
   }
 
   connect(): void {
-    const botOptions = {
+    const botOptions: mineflayer.BotOptions = {
       host: this.config.host,
       port: this.config.port,
       username: this.config.username,
+      auth: 'microsoft',
       plugins: { pathfinder },
-    };
+      onMsaCode: (data: { user_code: string; verification_uri: string; message?: string }) => {
+        this.callbacks.onLog('info', `[msa] First time signing in. Please authenticate now:`);
+        this.callbacks.onLog('info', `[msa] ${data.message || `Go to ${data.verification_uri} and enter code: ${data.user_code}`}`);
+      },
+    } as mineflayer.BotOptions;
 
     this.bot = mineflayer.createBot(botOptions);
     this.state = 'connecting';
@@ -72,6 +78,13 @@ export class BotConnection {
       const mcData = minecraftData(bot.version);
       const defaultMove = new Movements(bot, mcData);
       bot.pathfinder.setMovements(defaultMove);
+
+      try {
+        mineflayerViewer(bot, { port: 3000, firstPerson: true });
+        this.callbacks.onLog('info', 'Prismarine viewer started on http://localhost:3000');
+      } catch (err) {
+        this.callbacks.onLog('warn', `Failed to start prismarine viewer: ${err}`);
+      }
 
       bot.chat('LLM-powered bot ready to receive instructions!');
       this.callbacks.onLog('info', `Bot connected successfully. Username: ${this.config.username}, Server: ${this.config.host}:${this.config.port}`);
@@ -174,7 +187,7 @@ export class BotConnection {
         `1. Minecraft server is running on ${this.config.host}:${this.config.port}\n` +
         `2. Server is accessible from this machine\n` +
         `3. Server version is compatible (latest supported: ${SUPPORTED_MINECRAFT_VERSION})\n\n` +
-        `For setup instructions, visit: https://github.com/yuniko-software/minecraft-mcp-server`;
+        `For setup instructions, visit: https://github.com/kaylincoded/clankercraft`;
 
       return { connected: false, message: errorMessage };
     }
