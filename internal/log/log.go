@@ -4,24 +4,30 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+
+	charmlog "github.com/charmbracelet/log"
 )
 
-// Setup creates a structured JSON logger writing to stderr.
+// Setup creates a pretty terminal logger writing to stderr.
 func Setup(level string) *slog.Logger {
-	var lvl slog.Level
+	var lvl charmlog.Level
 	switch strings.ToLower(level) {
 	case "debug":
-		lvl = slog.LevelDebug
+		lvl = charmlog.DebugLevel
 	case "warn":
-		lvl = slog.LevelWarn
+		lvl = charmlog.WarnLevel
 	case "error":
-		lvl = slog.LevelError
+		lvl = charmlog.ErrorLevel
 	default:
-		lvl = slog.LevelInfo
+		lvl = charmlog.InfoLevel
 	}
 
-	handler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lvl})
-	logger := slog.New(handler)
+	charm := charmlog.NewWithOptions(os.Stderr, charmlog.Options{
+		Level:           lvl,
+		ReportTimestamp: true,
+	})
+
+	logger := slog.New(charm)
 	slog.SetDefault(logger)
 	return logger
 }
