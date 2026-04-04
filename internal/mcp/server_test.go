@@ -1681,6 +1681,316 @@ func TestValidatePatternAcceptsWeightedDistribution(t *testing.T) {
 	}
 }
 
+// --- WorldEdit clipboard operation tool tests ---
+
+func TestWECopySendsCorrectCommand(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-copy",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-copy): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-copy returned error: %v", result.Content)
+	}
+	if *cmd != "copy" {
+		t.Errorf("command = %q, want %q", *cmd, "copy")
+	}
+}
+
+func TestWECopyRequiresSelection(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-copy",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-copy): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-copy should return error when no selection set")
+	}
+}
+
+func TestWECopyRejectsVanilla(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection: engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-copy",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-copy): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-copy should return error when tier is vanilla")
+	}
+}
+
+func TestWECopyRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-copy",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-copy): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-copy should return error when disconnected")
+	}
+}
+
+func TestWEPasteSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-paste",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-paste): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-paste returned error: %v", result.Content)
+	}
+	if *cmd != "paste" {
+		t.Errorf("command = %q, want %q", *cmd, "paste")
+	}
+}
+
+func TestWEPasteSkipAir(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-paste",
+		Arguments: map[string]any{"skipAir": true},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-paste -a): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-paste -a returned error: %v", result.Content)
+	}
+	if *cmd != "paste -a" {
+		t.Errorf("command = %q, want %q", *cmd, "paste -a")
+	}
+}
+
+func TestWEPasteWorksWithoutSelection(t *testing.T) {
+	session := testSession(t, weTierMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-paste",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-paste): %v", err)
+	}
+	if result.IsError {
+		t.Error("we-paste should work without selection (clipboard-based)")
+	}
+}
+
+func TestWEPasteRejectsVanilla(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: true, tier: engine.TierVanilla})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-paste",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-paste): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-paste should return error when tier is vanilla")
+	}
+}
+
+func TestWEPasteRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-paste",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-paste): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-paste should return error when disconnected")
+	}
+}
+
+func TestWERotateSendsCorrectCommands(t *testing.T) {
+	for _, degrees := range []int{90, 180, 270} {
+		t.Run(fmt.Sprintf("%d_degrees", degrees), func(t *testing.T) {
+			mock, cmd := weTierCaptureMock()
+			session := testSession(t, mock)
+
+			result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+				Name:      "we-rotate",
+				Arguments: map[string]any{"degrees": degrees},
+			})
+			if err != nil {
+				t.Fatalf("CallTool(we-rotate %d): %v", degrees, err)
+			}
+			if result.IsError {
+				t.Errorf("we-rotate %d returned error: %v", degrees, result.Content)
+			}
+			want := fmt.Sprintf("rotate %d", degrees)
+			if *cmd != want {
+				t.Errorf("command = %q, want %q", *cmd, want)
+			}
+		})
+	}
+}
+
+func TestWERotateRejectsInvalidDegrees(t *testing.T) {
+	for _, degrees := range []int{0, 45, 360, -90} {
+		t.Run(fmt.Sprintf("%d_degrees", degrees), func(t *testing.T) {
+			session := testSession(t, weTierMock())
+
+			result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+				Name:      "we-rotate",
+				Arguments: map[string]any{"degrees": degrees},
+			})
+			if err != nil {
+				t.Fatalf("CallTool(we-rotate %d): %v", degrees, err)
+			}
+			if !result.IsError {
+				t.Errorf("we-rotate should reject %d degrees", degrees)
+			}
+		})
+	}
+}
+
+func TestWERotateRejectsVanilla(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: true, tier: engine.TierVanilla})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-rotate",
+		Arguments: map[string]any{"degrees": 90},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-rotate): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-rotate should return error when tier is vanilla")
+	}
+}
+
+func TestWERotateRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-rotate",
+		Arguments: map[string]any{"degrees": 90},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-rotate): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-rotate should return error when disconnected")
+	}
+}
+
+func TestWEFlipNoDirection(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-flip",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-flip): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-flip returned error: %v", result.Content)
+	}
+	if *cmd != "flip" {
+		t.Errorf("command = %q, want %q", *cmd, "flip")
+	}
+}
+
+func TestWEFlipWithDirection(t *testing.T) {
+	for _, dir := range []string{"north", "south", "east", "west", "up", "down"} {
+		t.Run(dir, func(t *testing.T) {
+			mock, cmd := weTierCaptureMock()
+			session := testSession(t, mock)
+
+			result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+				Name:      "we-flip",
+				Arguments: map[string]any{"direction": dir},
+			})
+			if err != nil {
+				t.Fatalf("CallTool(we-flip %s): %v", dir, err)
+			}
+			if result.IsError {
+				t.Errorf("we-flip %s returned error: %v", dir, result.Content)
+			}
+			want := "flip " + dir
+			if *cmd != want {
+				t.Errorf("command = %q, want %q", *cmd, want)
+			}
+		})
+	}
+}
+
+func TestWEFlipRejectsInvalidDirection(t *testing.T) {
+	session := testSession(t, weTierMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-flip",
+		Arguments: map[string]any{"direction": "diagonal"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-flip): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-flip should reject invalid direction")
+	}
+}
+
+func TestWEFlipRejectsVanilla(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: true, tier: engine.TierVanilla})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-flip",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-flip): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-flip should return error when tier is vanilla")
+	}
+}
+
+func TestWEFlipRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-flip",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-flip): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-flip should return error when disconnected")
+	}
+}
+
 func TestServerRunCancellation(t *testing.T) {
 	srv := New("test-version", testLogger(), &mockBotState{})
 

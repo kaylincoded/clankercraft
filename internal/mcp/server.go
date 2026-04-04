@@ -246,6 +246,24 @@ type weOverlayInput struct {
 	Pattern string `json:"pattern" jsonschema:"block pattern to overlay, e.g. grass_block or 50%stone,50%cobblestone"`
 }
 
+// weCopyInput is the input schema for the we-copy tool (no arguments).
+type weCopyInput struct{}
+
+// wePasteInput is the input schema for the we-paste tool.
+type wePasteInput struct {
+	SkipAir bool `json:"skipAir,omitempty" jsonschema:"if true, skips air blocks when pasting (//paste -a)"`
+}
+
+// weRotateInput is the input schema for the we-rotate tool.
+type weRotateInput struct {
+	Degrees int `json:"degrees" jsonschema:"rotation in degrees: 90, 180, or 270"`
+}
+
+// weFlipInput is the input schema for the we-flip tool.
+type weFlipInput struct {
+	Direction string `json:"direction,omitempty" jsonschema:"flip direction: north, south, east, west, up, down (default: player facing)"`
+}
+
 // scanAreaInput is the input schema for the scan-area tool.
 type scanAreaInput struct {
 	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
@@ -443,6 +461,30 @@ func (s *Server) registerTools() {
 		Name:        "we-overlay",
 		Description: "Overlay a block pattern on top of existing blocks in the current selection using WorldEdit //overlay",
 	}, requireWorldEdit(s.conn, s.handleWEOverlay))
+
+	// we-copy — requires WorldEdit + selection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-copy",
+		Description: "Copy the current selection to the clipboard using WorldEdit //copy",
+	}, requireWorldEdit(s.conn, s.handleWECopy))
+
+	// we-paste — requires WorldEdit tier (clipboard-based, no selection needed)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-paste",
+		Description: "Paste the clipboard at the bot's position using WorldEdit //paste (set skipAir=true to skip air blocks)",
+	}, requireWETier(s.conn, s.handleWEPaste))
+
+	// we-rotate — requires WorldEdit tier (clipboard-based, no selection needed)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-rotate",
+		Description: "Rotate the clipboard contents using WorldEdit //rotate (90, 180, or 270 degrees)",
+	}, requireWETier(s.conn, s.handleWERotate))
+
+	// we-flip — requires WorldEdit tier (clipboard-based, no selection needed)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-flip",
+		Description: "Flip the clipboard contents using WorldEdit //flip (direction: north/south/east/west/up/down)",
+	}, requireWETier(s.conn, s.handleWEFlip))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -845,6 +887,62 @@ func (s *Server) handleWEOverlay(_ context.Context, _ *gomcp.CallToolRequest, in
 		return toolError(fmt.Sprintf("//overlay failed: %v", err)), weCommandOutput{}, nil
 	}
 	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//overlay %s: %s", input.Pattern, resp)}, nil
+}
+
+// validFlipDirections is the set of valid directions for //flip.
+var validFlipDirections = map[string]bool{
+	"north": true, "south": true, "east": true, "west": true, "up": true, "down": true,
+}
+
+// handleWECopy copies the selection to the clipboard.
+func (s *Server) handleWECopy(_ context.Context, _ *gomcp.CallToolRequest, _ weCopyInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	resp, err := s.conn.RunWECommand("copy")
+	if err != nil {
+		return toolError(fmt.Sprintf("//copy failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//copy: %s", resp)}, nil
+}
+
+// handleWEPaste pastes the clipboard at the bot's position.
+func (s *Server) handleWEPaste(_ context.Context, _ *gomcp.CallToolRequest, input wePasteInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	cmd := "paste"
+	if input.SkipAir {
+		cmd = "paste -a"
+	}
+	resp, err := s.conn.RunWECommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("//%s failed: %v", cmd, err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//%s: %s", cmd, resp)}, nil
+}
+
+// handleWERotate rotates the clipboard contents.
+func (s *Server) handleWERotate(_ context.Context, _ *gomcp.CallToolRequest, input weRotateInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	if input.Degrees != 90 && input.Degrees != 180 && input.Degrees != 270 {
+		return toolError(fmt.Sprintf("invalid rotation: %d degrees (must be 90, 180, or 270)", input.Degrees)), weCommandOutput{}, nil
+	}
+	cmd := fmt.Sprintf("rotate %d", input.Degrees)
+	resp, err := s.conn.RunWECommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("//rotate failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//rotate %d: %s", input.Degrees, resp)}, nil
+}
+
+// handleWEFlip flips the clipboard contents.
+func (s *Server) handleWEFlip(_ context.Context, _ *gomcp.CallToolRequest, input weFlipInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	cmd := "flip"
+	if input.Direction != "" {
+		if !validFlipDirections[input.Direction] {
+			return toolError(fmt.Sprintf("invalid flip direction: %q (must be north, south, east, west, up, or down)", input.Direction)), weCommandOutput{}, nil
+		}
+		cmd += " " + input.Direction
+	}
+	resp, err := s.conn.RunWECommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("//%s failed: %v", cmd, err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//%s: %s", cmd, resp)}, nil
 }
 
 // handleDetectGamemode returns the bot's current game mode.
