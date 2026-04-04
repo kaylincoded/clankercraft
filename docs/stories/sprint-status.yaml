@@ -1,0 +1,101 @@
+# generated: 2026-04-03
+# last_updated: 2026-04-03
+# project: Clankercraft v3
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: docs/stories
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-04-03
+last_updated: 2026-04-04
+project: Clankercraft v3
+project_key: NOKEY
+tracking_system: file-system
+story_location: docs/stories
+
+development_status:
+  # Epic 1: Foundation — Connection, Config, Binary
+  epic-1: in-progress
+  1-1-project-initialization-cli-scaffolding: done
+  1-2-minecraft-connection-via-go-mc: backlog
+  1-3-msa-authentication: backlog
+  1-4-connection-state-machine-auto-reconnect: backlog
+  1-5-graceful-shutdown: backlog
+  1-6-configuration-layering: backlog
+  1-7-structured-logging: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: MCP Stdio Interface & Observation Tools
+  epic-2: backlog
+  2-1-mcp-stdio-transport: backlog
+  2-2-mcp-tool-registration-framework: backlog
+  2-3-tool-listing-discovery: backlog
+  2-4-position-movement-tools: backlog
+  2-5-block-query-tools: backlog
+  2-6-area-scanning-tool: backlog
+  2-7-sign-game-state-tools: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Construction Engine & WorldEdit Integration
+  epic-3: backlog
+  3-1-worldedit-capability-tier-detection: backlog
+  3-2-worldedit-selection-management: backlog
+  3-3-wand-selection-sharing: backlog
+  3-4-worldedit-region-operations: backlog
+  3-5-worldedit-generation-commands: backlog
+  3-6-worldedit-terrain-operations-patterns: backlog
+  3-7-worldedit-clipboard-operations: backlog
+  3-8-worldedit-undo-redo: backlog
+  3-9-vanilla-fallback-construction: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: RCON Channel
+  epic-4: backlog
+  4-1-rcon-client-connection: backlog
+  4-2-command-routing-chat-vs-rcon: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: In-Game Chat Interface & LLM Integration
+  epic-5: backlog
+  5-1-whisper-listener: backlog
+  5-2-chat-response-system: backlog
+  5-3-llm-provider-interface-claude-implementation: backlog
+  5-4-tool-calling-agent-loop: backlog
+  5-5-conversation-context-natural-language-building: backlog
+  5-6-bot-summoning-teleportation: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Distribution & Release
+  epic-6: backlog
+  6-1-goreleaser-configuration: backlog
+  6-2-ci-pipeline: backlog
+  6-3-schematic-directory-loading: backlog
+  epic-6-retrospective: optional
