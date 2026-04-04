@@ -35,6 +35,7 @@ type BotState interface {
 	RunBulkWECommand(command string) (string, error)
 	RunBulkCommand(command string) (string, error)
 	OnWhisper(handler func(sender, message string))
+	SendWhisper(player, message string) error
 }
 
 // requireWETier wraps a handler with connection and WorldEdit tier checks (no selection required).

@@ -158,18 +158,23 @@ type Connection struct {
 	hasPos2        bool             // true after pos2 is set (wand or programmatic)
 	wandDone       chan struct{}     // closed on disconnect to stop wand listener
 	rcon            RCONExecutor      // optional RCON client for bulk command routing
-	whisperListener *chatpkg.Listener // optional whisper event listener
+	whisperListener *chatpkg.Listener // whisper event listener
+	chatSender      *chatpkg.Sender   // whisper/chat sender
 }
 
 // New creates a new Connection configured from the given config.
 func New(cfg *config.Config, logger *slog.Logger) *Connection {
-	return &Connection{
+	c := &Connection{
 		cfg:             cfg,
 		logger:          logger,
 		authFn:          Authenticate,
 		shutdownTimeout: ShutdownTimeout,
 		whisperListener: chatpkg.NewListener(),
 	}
+	c.chatSender = chatpkg.NewSender(func(cmd string) error {
+		return c.SendCommand(cmd)
+	})
+	return c
 }
 
 // Address returns the "host:port" string for the server.
@@ -954,6 +959,12 @@ func (c *Connection) OnWhisper(handler func(sender, message string)) {
 	c.whisperListener.OnWhisper(func(w chatpkg.Whisper) {
 		handler(w.Sender, w.Message)
 	})
+}
+
+// SendWhisper sends a whisper (/msg) to a player. Long messages are split
+// automatically to stay within Minecraft's 256-char command limit.
+func (c *Connection) SendWhisper(player, message string) error {
+	return c.chatSender.SendWhisper(player, message)
 }
 
 // RunBulkWECommand sends a WorldEdit command, preferring RCON if available.

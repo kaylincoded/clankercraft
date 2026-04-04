@@ -122,6 +122,7 @@ func (m *mockBotState) RunBulkCommand(command string) (string, error) {
 }
 
 func (m *mockBotState) OnWhisper(handler func(sender, message string)) {}
+func (m *mockBotState) SendWhisper(player, message string) error        { return nil }
 
 func TestRequireWETierAllowsWithoutSelection(t *testing.T) {
 	mock := &mockBotState{
