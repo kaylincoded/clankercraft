@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/kaylincoded/clankercraft/internal/agent"
 	"github.com/kaylincoded/clankercraft/internal/config"
 	"github.com/kaylincoded/clankercraft/internal/connection"
 	"github.com/kaylincoded/clankercraft/internal/llm"
@@ -67,7 +68,9 @@ func run(cmd *cobra.Command, args []string) error {
 	// Initialize LLM provider (optional — nil means no LLM features).
 	var llmProvider llm.Provider
 	if cfg.AnthropicAPIKey != "" {
-		opts := []llm.ClaudeOption{}
+		opts := []llm.ClaudeOption{
+			llm.WithSystemPrompt(agent.DefaultSystemPrompt),
+		}
 		if cfg.LLMModel != "" {
 			opts = append(opts, llm.WithModel(cfg.LLMModel))
 		}
@@ -76,7 +79,6 @@ func run(cmd *cobra.Command, args []string) error {
 	} else {
 		logger.Warn("ANTHROPIC_API_KEY not set — LLM features disabled")
 	}
-	_ = llmProvider // will be wired into agent loop in Story 5.4
 
 	// Start MC connection and MCP server concurrently.
 	// errgroup cancels gctx on first error, so a broken MCP transport
@@ -84,6 +86,21 @@ func run(cmd *cobra.Command, args []string) error {
 	conn := connection.New(cfg, logger)
 	conn.SetRCON(rconClient)
 	mcpServer := mcp.New(version, logger, conn)
+
+	// Wire agent loop: whisper → LLM → tool execution → whisper reply.
+	if llmProvider != nil {
+		toolExec := agent.NewToolExecutor(conn)
+		agentLoop := agent.NewAgent(llmProvider, toolExec, logger)
+		conn.OnWhisper(func(sender, msg string) {
+			go func() {
+				replyFn := func(reply string) error { return conn.SendWhisper(sender, reply) }
+				if err := agentLoop.HandleMessage(ctx, sender, msg, replyFn); err != nil {
+					logger.Error("agent error", slog.String("player", sender), slog.Any("error", err))
+				}
+			}()
+		})
+		logger.Info("agent loop wired — whisper to interact")
+	}
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return conn.RunWithReconnect(gctx) })

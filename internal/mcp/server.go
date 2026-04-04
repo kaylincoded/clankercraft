@@ -10,8 +10,8 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// validPatternRe matches valid WorldEdit block patterns (letters, digits, underscores, colons, commas, percentages, etc.).
-var validPatternRe = regexp.MustCompile(`^[a-zA-Z0-9_:,%!^.\[\]]+$`)
+// ValidPatternRe matches valid WorldEdit block patterns (letters, digits, underscores, colons, commas, percentages, etc.).
+var ValidPatternRe = regexp.MustCompile(`^[a-zA-Z0-9_:,%!^.\[\]]+$`)
 
 // Server wraps the MCP SDK server with clankercraft-specific configuration.
 type Server struct {
@@ -777,7 +777,7 @@ func validatePattern(pattern string) error {
 	if pattern == "" {
 		return fmt.Errorf("pattern cannot be empty")
 	}
-	if !validPatternRe.MatchString(pattern) {
+	if !ValidPatternRe.MatchString(pattern) {
 		return fmt.Errorf("invalid block pattern: %q", pattern)
 	}
 	return nil
