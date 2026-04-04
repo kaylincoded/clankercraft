@@ -55,8 +55,8 @@ development_status:
 
   # Epic 2: MCP Stdio Interface & Observation Tools
   epic-2: in-progress
-  2-1-mcp-stdio-transport: review
-  2-2-mcp-tool-registration-framework: backlog
+  2-1-mcp-stdio-transport: done
+  2-2-mcp-tool-registration-framework: done
   2-3-tool-listing-discovery: backlog
   2-4-position-movement-tools: backlog
   2-5-block-query-tools: backlog
