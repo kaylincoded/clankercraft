@@ -64,6 +64,17 @@ type Position struct {
 	Yaw, Pitch float32
 }
 
+// BlockInfo represents a block at a specific position, returned by ScanArea.
+type BlockInfo struct {
+	Block   string
+	X, Y, Z int
+}
+
+const (
+	// MaxScanVolume is the maximum number of blocks that can be scanned at once.
+	MaxScanVolume = 10000
+)
+
 // AuthFunc is the function signature for MSA authentication.
 type AuthFunc func(cfg *config.Config, logger *slog.Logger) (*bot.Auth, error)
 
@@ -546,4 +557,46 @@ func (c *Connection) FindBlock(blockType string, maxDist int) (bx, by, bz int, f
 	}
 
 	return bx, by, bz, found, nil
+}
+
+// ScanArea scans a rectangular region and returns all non-air blocks.
+// Returns an error if the region exceeds MaxScanVolume blocks.
+// Blocks in unloaded chunks are silently skipped.
+func (c *Connection) ScanArea(x1, y1, z1, x2, y2, z2 int) ([]BlockInfo, error) {
+	// Normalize corners
+	if x1 > x2 {
+		x1, x2 = x2, x1
+	}
+	if y1 > y2 {
+		y1, y2 = y2, y1
+	}
+	if z1 > z2 {
+		z1, z2 = z2, z1
+	}
+
+	dx := x2 - x1 + 1
+	dy := y2 - y1 + 1
+	dz := z2 - z1 + 1
+	volume := dx * dy * dz
+	if volume > MaxScanVolume {
+		return nil, fmt.Errorf("region too large: %d blocks (max %d)", volume, MaxScanVolume)
+	}
+
+	var blocks []BlockInfo
+	for x := x1; x <= x2; x++ {
+		for y := y1; y <= y2; y++ {
+			for z := z1; z <= z2; z++ {
+				name, err := c.BlockAt(x, y, z)
+				if err != nil {
+					continue // skip unloaded chunks
+				}
+				if name == "minecraft:air" || name == "minecraft:cave_air" || name == "minecraft:void_air" {
+					continue
+				}
+				blocks = append(blocks, BlockInfo{Block: name, X: x, Y: y, Z: z})
+			}
+		}
+	}
+
+	return blocks, nil
 }

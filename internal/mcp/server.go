@@ -87,6 +87,31 @@ type findBlockOutput struct {
 	Message string `json:"message"`
 }
 
+// scanAreaInput is the input schema for the scan-area tool.
+type scanAreaInput struct {
+	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
+	Y1 int `json:"y1" jsonschema:"first corner Y coordinate"`
+	Z1 int `json:"z1" jsonschema:"first corner Z coordinate"`
+	X2 int `json:"x2" jsonschema:"second corner X coordinate"`
+	Y2 int `json:"y2" jsonschema:"second corner Y coordinate"`
+	Z2 int `json:"z2" jsonschema:"second corner Z coordinate"`
+}
+
+// scanAreaBlock is a single block in a scan result.
+type scanAreaBlock struct {
+	Block string `json:"block"`
+	X     int    `json:"x"`
+	Y     int    `json:"y"`
+	Z     int    `json:"z"`
+}
+
+// scanAreaOutput is the output schema for the scan-area tool.
+type scanAreaOutput struct {
+	Blocks  []scanAreaBlock `json:"blocks"`
+	Count   int             `json:"count"`
+	Message string          `json:"message,omitempty"`
+}
+
 // New creates a configured MCP server with registered tools.
 func New(version string, logger *slog.Logger, conn BotState) *Server {
 	s := gomcp.NewServer(
@@ -145,6 +170,12 @@ func (s *Server) registerTools() {
 		Name:        "find-block",
 		Description: "Find the nearest block of a given type within a search distance",
 	}, requireConnection(s.conn, s.handleFindBlock))
+
+	// scan-area — requires connection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "scan-area",
+		Description: "Scan a rectangular region and return all non-air blocks with their types and positions (max 10,000 blocks)",
+	}, requireConnection(s.conn, s.handleScanArea))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -237,6 +268,25 @@ func (s *Server) handleFindBlock(_ context.Context, _ *gomcp.CallToolRequest, in
 		Y:       by,
 		Z:       bz,
 		Message: fmt.Sprintf("found %s at (%d, %d, %d)", input.BlockType, bx, by, bz),
+	}, nil
+}
+
+// handleScanArea scans a rectangular region and returns non-air blocks.
+func (s *Server) handleScanArea(_ context.Context, _ *gomcp.CallToolRequest, input scanAreaInput) (*gomcp.CallToolResult, scanAreaOutput, error) {
+	blocks, err := s.conn.ScanArea(input.X1, input.Y1, input.Z1, input.X2, input.Y2, input.Z2)
+	if err != nil {
+		return toolError(err.Error()), scanAreaOutput{}, nil
+	}
+
+	result := make([]scanAreaBlock, len(blocks))
+	for i, b := range blocks {
+		result[i] = scanAreaBlock{Block: b.Block, X: b.X, Y: b.Y, Z: b.Z}
+	}
+
+	return nil, scanAreaOutput{
+		Blocks:  result,
+		Count:   len(result),
+		Message: fmt.Sprintf("scanned region, found %d non-air blocks", len(result)),
 	}, nil
 }
 

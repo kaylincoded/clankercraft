@@ -19,6 +19,7 @@ type mockBotState struct {
 	sendRotErr   error
 	blockAtFn    func(x, y, z int) (string, error)
 	findBlockFn  func(blockType string, maxDist int) (int, int, int, bool, error)
+	scanAreaFn   func(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockInfo, error)
 }
 
 func (m *mockBotState) IsConnected() bool { return m.connected }
@@ -39,6 +40,12 @@ func (m *mockBotState) FindBlock(blockType string, maxDist int) (int, int, int, 
 		return m.findBlockFn(blockType, maxDist)
 	}
 	return 0, 0, 0, false, fmt.Errorf("not implemented")
+}
+func (m *mockBotState) ScanArea(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockInfo, error) {
+	if m.scanAreaFn != nil {
+		return m.scanAreaFn(x1, y1, z1, x2, y2, z2)
+	}
+	return nil, fmt.Errorf("not implemented")
 }
 
 func TestRequireConnectionRejectsDisconnected(t *testing.T) {

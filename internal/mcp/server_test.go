@@ -462,6 +462,66 @@ func TestFindBlockWhenDisconnected(t *testing.T) {
 	}
 }
 
+// --- scan-area tool tests ---
+
+func TestScanAreaWhenConnected(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		scanAreaFn: func(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockInfo, error) {
+			return []connection.BlockInfo{
+				{Block: "minecraft:stone", X: 0, Y: 64, Z: 0},
+				{Block: "minecraft:dirt", X: 1, Y: 64, Z: 0},
+			}, nil
+		},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "scan-area",
+		Arguments: map[string]any{"x1": 0, "y1": 64, "z1": 0, "x2": 5, "y2": 64, "z2": 5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(scan-area): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("scan-area returned error: %v", result.Content)
+	}
+}
+
+func TestScanAreaTooLarge(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		scanAreaFn: func(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockInfo, error) {
+			return nil, fmt.Errorf("region too large: 30000 blocks (max 10000)")
+		},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "scan-area",
+		Arguments: map[string]any{"x1": 0, "y1": 0, "z1": 0, "x2": 99, "y2": 29, "z2": 9},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(scan-area): %v", err)
+	}
+	if !result.IsError {
+		t.Error("scan-area should return error for oversized region")
+	}
+}
+
+func TestScanAreaWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "scan-area",
+		Arguments: map[string]any{"x1": 0, "y1": 64, "z1": 0, "x2": 5, "y2": 64, "z2": 5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(scan-area): %v", err)
+	}
+	if !result.IsError {
+		t.Error("scan-area should return error when disconnected")
+	}
+}
+
 func TestServerRunCancellation(t *testing.T) {
 	srv := New("test-version", testLogger(), &mockBotState{})
 

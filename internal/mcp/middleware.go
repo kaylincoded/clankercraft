@@ -20,6 +20,7 @@ type BotState interface {
 	SendRotation(yaw, pitch float32) error
 	BlockAt(x, y, z int) (string, error)
 	FindBlock(blockType string, maxDist int) (bx, by, bz int, found bool, err error)
+	ScanArea(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockInfo, error)
 }
 
 // requireConnection wraps a typed tool handler with a connection check.
