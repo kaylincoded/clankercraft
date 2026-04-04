@@ -1,29 +1,13 @@
-# Dist folder
-dist/
-
-# Node.js dependencies
-node_modules/
-
-# Log files
-logs/
-*.log
-npm-debug.log*
-
-# Process IDs
-pids/
-*.pid
-*.seed
-*.pid.lock
-
-# NPM cache
-.npm/
-
-# REPL history
-.node_repl_history
-
 # Go binaries
 clankercraft
 *.exe
+dist/
+
+# Node.js (legacy, kept for tools/world-scanner deps if any)
+node_modules/
+
+# Log files
+*.log
 
 # Claude Code configuration (keep skills/)
 .claude/*
