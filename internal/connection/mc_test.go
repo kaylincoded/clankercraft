@@ -775,7 +775,8 @@ func TestResetSelectionOnDisconnect(t *testing.T) {
 
 	conn.mu.Lock()
 	conn.selection = engine.Selection{X1: 1, Y1: 2, Z1: 3, X2: 4, Y2: 5, Z2: 6}
-	conn.hasSelection = true
+	conn.hasPos1 = true
+	conn.hasPos2 = true
 	conn.mu.Unlock()
 
 	conn.resetSelection()
@@ -783,6 +784,218 @@ func TestResetSelectionOnDisconnect(t *testing.T) {
 	_, ok := conn.GetSelection()
 	if ok {
 		t.Error("GetSelection() should return false after resetSelection")
+	}
+}
+
+// --- Wand selection parsing tests ---
+
+func TestParseWandPos1Valid(t *testing.T) {
+	tests := []struct {
+		msg          string
+		wantX, wantY, wantZ int
+	}{
+		{"First position set to (100, 64, -200).", 100, 64, -200},
+		{"First position set to (100, 64, -200) (7260).", 100, 64, -200},
+		{"First position set to (0, 0, 0).", 0, 0, 0},
+		{"First position set to (-50, -10, 300).", -50, -10, 300},
+	}
+	for _, tt := range tests {
+		x, y, z, ok := parseWandPos1(tt.msg)
+		if !ok {
+			t.Errorf("parseWandPos1(%q) returned ok=false, want true", tt.msg)
+			continue
+		}
+		if x != tt.wantX || y != tt.wantY || z != tt.wantZ {
+			t.Errorf("parseWandPos1(%q) = (%d, %d, %d), want (%d, %d, %d)", tt.msg, x, y, z, tt.wantX, tt.wantY, tt.wantZ)
+		}
+	}
+}
+
+func TestParseWandPos1Invalid(t *testing.T) {
+	invalids := []string{
+		"Second position set to (100, 64, -200).",
+		"WorldEdit version 7.4.0",
+		"Unknown command",
+		"",
+	}
+	for _, msg := range invalids {
+		if _, _, _, ok := parseWandPos1(msg); ok {
+			t.Errorf("parseWandPos1(%q) returned ok=true, want false", msg)
+		}
+	}
+}
+
+func TestParseWandPos2Valid(t *testing.T) {
+	tests := []struct {
+		msg          string
+		wantX, wantY, wantZ int
+	}{
+		{"Second position set to (110, 70, -190).", 110, 70, -190},
+		{"Second position set to (110, 70, -190) (7260).", 110, 70, -190},
+		{"Second position set to (-1, -64, -1).", -1, -64, -1},
+	}
+	for _, tt := range tests {
+		x, y, z, ok := parseWandPos2(tt.msg)
+		if !ok {
+			t.Errorf("parseWandPos2(%q) returned ok=false, want true", tt.msg)
+			continue
+		}
+		if x != tt.wantX || y != tt.wantY || z != tt.wantZ {
+			t.Errorf("parseWandPos2(%q) = (%d, %d, %d), want (%d, %d, %d)", tt.msg, x, y, z, tt.wantX, tt.wantY, tt.wantZ)
+		}
+	}
+}
+
+func TestParseWandPos2Invalid(t *testing.T) {
+	invalids := []string{
+		"First position set to (100, 64, -200).",
+		"some random chat",
+		"",
+	}
+	for _, msg := range invalids {
+		if _, _, _, ok := parseWandPos2(msg); ok {
+			t.Errorf("parseWandPos2(%q) returned ok=true, want false", msg)
+		}
+	}
+}
+
+func waitForCondition(t *testing.T, check func() bool, timeout time.Duration, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if check() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Error(msg)
+}
+
+func TestWandListenerUpdatesSelection(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+	conn.wandDone = make(chan struct{})
+
+	go conn.startWandListener()
+
+	// Wait for listener to register
+	waitForCondition(t, func() bool {
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+		return len(conn.chatListeners) > 0
+	}, 500*time.Millisecond, "wand listener should register a chat listener")
+
+	// Send pos1
+	conn.dispatchChat("First position set to (100, 64, -200).")
+	waitForCondition(t, conn.HasPos1, 500*time.Millisecond, "HasPos1() should be true after wand pos1")
+
+	if conn.HasPos2() {
+		t.Error("HasPos2() should be false before wand pos2")
+	}
+	_, ok := conn.GetSelection()
+	if ok {
+		t.Error("GetSelection() should return false with only pos1")
+	}
+
+	// Send pos2
+	conn.dispatchChat("Second position set to (110, 70, -190) (7260).")
+	waitForCondition(t, conn.HasPos2, 500*time.Millisecond, "HasPos2() should be true after wand pos2")
+
+	sel, ok := conn.GetSelection()
+	if !ok {
+		t.Fatal("GetSelection() should return true with both positions")
+	}
+	if sel.X1 != 100 || sel.Y1 != 64 || sel.Z1 != -200 {
+		t.Errorf("pos1 = (%d, %d, %d), want (100, 64, -200)", sel.X1, sel.Y1, sel.Z1)
+	}
+	if sel.X2 != 110 || sel.Y2 != 70 || sel.Z2 != -190 {
+		t.Errorf("pos2 = (%d, %d, %d), want (110, 70, -190)", sel.X2, sel.Y2, sel.Z2)
+	}
+
+	close(conn.wandDone)
+}
+
+func TestWandListenerStopsOnDone(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+	conn.wandDone = make(chan struct{})
+
+	done := make(chan struct{})
+	go func() {
+		conn.startWandListener()
+		close(done)
+	}()
+
+	close(conn.wandDone)
+
+	select {
+	case <-done:
+		// expected
+	case <-time.After(1 * time.Second):
+		t.Error("wand listener did not stop after wandDone closed")
+	}
+}
+
+func TestDisconnectClearsWandStateAndStopsListener(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+	conn.wandDone = make(chan struct{})
+
+	listenerDone := make(chan struct{})
+	go func() {
+		conn.startWandListener()
+		close(listenerDone)
+	}()
+
+	// Wait for listener to register
+	waitForCondition(t, func() bool {
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+		return len(conn.chatListeners) > 0
+	}, 500*time.Millisecond, "wand listener should register")
+
+	// Set wand positions
+	conn.dispatchChat("First position set to (10, 20, 30).")
+	conn.dispatchChat("Second position set to (40, 50, 60).")
+	waitForCondition(t, func() bool {
+		_, ok := conn.GetSelection()
+		return ok
+	}, 500*time.Millisecond, "both positions should be set")
+
+	// Simulate disconnect: close wandDone, then resetSelection
+	conn.mu.Lock()
+	close(conn.wandDone)
+	conn.wandDone = nil
+	conn.mu.Unlock()
+	conn.resetSelection()
+
+	// Verify listener stopped
+	select {
+	case <-listenerDone:
+	case <-time.After(1 * time.Second):
+		t.Error("wand listener did not stop after disconnect")
+	}
+
+	// Verify state cleared
+	if conn.HasPos1() {
+		t.Error("HasPos1() should be false after disconnect")
+	}
+	if conn.HasPos2() {
+		t.Error("HasPos2() should be false after disconnect")
+	}
+	_, ok := conn.GetSelection()
+	if ok {
+		t.Error("GetSelection() should return false after disconnect")
+	}
+}
+
+func TestSetSelectionSetsBothPosFlags(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+	conn.mu.Lock()
+	conn.tier = engine.TierVanilla
+	conn.mu.Unlock()
+
+	conn.SetSelection(0, 64, 0, 10, 70, 10)
+
+	if !conn.HasPos1() || !conn.HasPos2() {
+		t.Error("SetSelection should set both hasPos1 and hasPos2")
 	}
 }
 

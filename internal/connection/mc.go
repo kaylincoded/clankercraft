@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"sort"
-	"strings"
 	"net"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -102,6 +104,12 @@ type chatListener struct {
 // DetectTimeout is how long to wait for a //version response before assuming vanilla.
 const DetectTimeout = 3 * time.Second
 
+// wandPos1Re matches WorldEdit "First position set to (x, y, z)" messages.
+var wandPos1Re = regexp.MustCompile(`First position set to \((-?\d+), (-?\d+), (-?\d+)\)`)
+
+// wandPos2Re matches WorldEdit "Second position set to (x, y, z)" messages.
+var wandPos2Re = regexp.MustCompile(`Second position set to \((-?\d+), (-?\d+), (-?\d+)\)`)
+
 // AuthFunc is the function signature for MSA authentication.
 type AuthFunc func(cfg *config.Config, logger *slog.Logger) (*bot.Auth, error)
 
@@ -130,7 +138,9 @@ type Connection struct {
 	tier           engine.Tier      // detected WorldEdit capability tier
 	chatListeners  []chatListener   // one-shot system chat listeners
 	selection      engine.Selection // current WorldEdit selection
-	hasSelection   bool             // true after SetSelection is called
+	hasPos1        bool             // true after pos1 is set (wand or programmatic)
+	hasPos2        bool             // true after pos2 is set (wand or programmatic)
+	wandDone       chan struct{}     // closed on disconnect to stop wand listener
 }
 
 // New creates a new Connection configured from the given config.
@@ -182,13 +192,23 @@ func (c *Connection) Connect(ctx context.Context) error {
 		GameStart: func() error {
 			c.setState(StateConnected)
 			c.logger.Info("spawned in world", slog.String("server", c.Address()))
+			c.mu.Lock()
+			c.wandDone = make(chan struct{})
+			c.mu.Unlock()
 			go c.detectTier()
+			go c.startWandListener()
 			return nil
 		},
 		Disconnect: func(reason chat.Message) error {
 			c.setState(StateDisconnected)
 			c.resetPosition()
 			c.resetTier()
+			c.mu.Lock()
+			if c.wandDone != nil {
+				close(c.wandDone)
+				c.wandDone = nil
+			}
+			c.mu.Unlock()
 			c.resetSelection()
 			c.logger.Warn("disconnected by server", slog.String("reason", reason.String()))
 			return nil
@@ -921,7 +941,8 @@ func (c *Connection) resetTier() {
 func (c *Connection) SetSelection(x1, y1, z1, x2, y2, z2 int) error {
 	c.mu.Lock()
 	c.selection = engine.Selection{X1: x1, Y1: y1, Z1: z1, X2: x2, Y2: y2, Z2: z2}
-	c.hasSelection = true
+	c.hasPos1 = true
+	c.hasPos2 = true
 	tier := c.tier
 	c.mu.Unlock()
 
@@ -937,19 +958,98 @@ func (c *Connection) SetSelection(x1, y1, z1, x2, y2, z2 int) error {
 	return nil
 }
 
-// GetSelection returns the current selection and whether one has been set.
+// GetSelection returns the current selection and whether both positions are set.
 func (c *Connection) GetSelection() (engine.Selection, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.selection, c.hasSelection
+	return c.selection, c.hasPos1 && c.hasPos2
 }
 
-// resetSelection clears the selection (called on disconnect).
+// HasPos1 returns whether pos1 of the selection has been set.
+func (c *Connection) HasPos1() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.hasPos1
+}
+
+// HasPos2 returns whether pos2 of the selection has been set.
+func (c *Connection) HasPos2() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.hasPos2
+}
+
+// resetSelection clears the selection and wand state (called on disconnect).
 func (c *Connection) resetSelection() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.selection = engine.Selection{}
-	c.hasSelection = false
+	c.hasPos1 = false
+	c.hasPos2 = false
+}
+
+// parseWandPos1 checks if a chat message is a WorldEdit wand pos1 selection.
+func parseWandPos1(msg string) (x, y, z int, ok bool) {
+	m := wandPos1Re.FindStringSubmatch(msg)
+	if m == nil {
+		return 0, 0, 0, false
+	}
+	x, _ = strconv.Atoi(m[1])
+	y, _ = strconv.Atoi(m[2])
+	z, _ = strconv.Atoi(m[3])
+	return x, y, z, true
+}
+
+// parseWandPos2 checks if a chat message is a WorldEdit wand pos2 selection.
+func parseWandPos2(msg string) (x, y, z int, ok bool) {
+	m := wandPos2Re.FindStringSubmatch(msg)
+	if m == nil {
+		return 0, 0, 0, false
+	}
+	x, _ = strconv.Atoi(m[1])
+	y, _ = strconv.Atoi(m[2])
+	z, _ = strconv.Atoi(m[3])
+	return x, y, z, true
+}
+
+// startWandListener listens for WorldEdit wand selection messages and updates the selection.
+// Runs as a goroutine for the duration of the connection.
+func (c *Connection) startWandListener() {
+	ch := c.listenChat()
+	defer c.unlistenChat(ch)
+
+	c.mu.Lock()
+	done := c.wandDone
+	c.mu.Unlock()
+
+	if done == nil {
+		return
+	}
+
+	for {
+		select {
+		case msg := <-ch:
+			if x, y, z, ok := parseWandPos1(msg); ok {
+				c.mu.Lock()
+				c.selection.X1 = x
+				c.selection.Y1 = y
+				c.selection.Z1 = z
+				c.hasPos1 = true
+				c.mu.Unlock()
+				c.logger.Info("wand pos1 set", "x", x, "y", y, "z", z)
+			} else if x, y, z, ok := parseWandPos2(msg); ok {
+				c.mu.Lock()
+				c.selection.X2 = x
+				c.selection.Y2 = y
+				c.selection.Z2 = z
+				c.hasPos2 = true
+				c.mu.Unlock()
+				c.logger.Info("wand pos2 set", "x", x, "y", y, "z", z)
+			}
+		case <-done:
+			return
+		}
+	}
 }
 
 // parseTierFromChat checks if a chat message indicates a WorldEdit tier.

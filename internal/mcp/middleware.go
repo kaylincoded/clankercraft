@@ -28,6 +28,8 @@ type BotState interface {
 	GetTier() engine.Tier
 	SetSelection(x1, y1, z1, x2, y2, z2 int) error
 	GetSelection() (engine.Selection, bool)
+	HasPos1() bool
+	HasPos2() bool
 }
 
 // requireConnection wraps a typed tool handler with a connection check.

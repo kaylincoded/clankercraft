@@ -27,7 +27,8 @@ type mockBotState struct {
 	tier           engine.Tier
 	setSelectionFn func(x1, y1, z1, x2, y2, z2 int) error
 	selection      engine.Selection
-	hasSelection   bool
+	hasPos1        bool
+	hasPos2        bool
 }
 
 func (m *mockBotState) IsConnected() bool { return m.connected }
@@ -81,12 +82,15 @@ func (m *mockBotState) SetSelection(x1, y1, z1, x2, y2, z2 int) error {
 		return m.setSelectionFn(x1, y1, z1, x2, y2, z2)
 	}
 	m.selection = engine.Selection{X1: x1, Y1: y1, Z1: z1, X2: x2, Y2: y2, Z2: z2}
-	m.hasSelection = true
+	m.hasPos1 = true
+	m.hasPos2 = true
 	return nil
 }
 func (m *mockBotState) GetSelection() (engine.Selection, bool) {
-	return m.selection, m.hasSelection
+	return m.selection, m.hasPos1 && m.hasPos2
 }
+func (m *mockBotState) HasPos1() bool { return m.hasPos1 }
+func (m *mockBotState) HasPos2() bool { return m.hasPos2 }
 
 func TestRequireConnectionRejectsDisconnected(t *testing.T) {
 	checker := &mockBotState{connected: false}

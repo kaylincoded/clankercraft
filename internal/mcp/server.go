@@ -460,21 +460,40 @@ func (s *Server) handleSetSelection(_ context.Context, _ *gomcp.CallToolRequest,
 	}, nil
 }
 
-// handleGetSelection returns the current selection or indicates none is set.
+// handleGetSelection returns the current selection or indicates partial/no state.
 func (s *Server) handleGetSelection(_ context.Context, _ *gomcp.CallToolRequest, _ getSelectionInput) (*gomcp.CallToolResult, getSelectionOutput, error) {
 	sel, ok := s.conn.GetSelection()
-	if !ok {
-		return toolError("no selection set"), getSelectionOutput{}, nil
+	if ok {
+		return nil, getSelectionOutput{
+			X1:      sel.X1,
+			Y1:      sel.Y1,
+			Z1:      sel.Z1,
+			X2:      sel.X2,
+			Y2:      sel.Y2,
+			Z2:      sel.Z2,
+			Message: fmt.Sprintf("selection: %s", sel.String()),
+		}, nil
 	}
-	return nil, getSelectionOutput{
-		X1:      sel.X1,
-		Y1:      sel.Y1,
-		Z1:      sel.Z1,
-		X2:      sel.X2,
-		Y2:      sel.Y2,
-		Z2:      sel.Z2,
-		Message: fmt.Sprintf("selection: %s", sel.String()),
-	}, nil
+
+	hasP1 := s.conn.HasPos1()
+	hasP2 := s.conn.HasPos2()
+	if hasP1 && !hasP2 {
+		return nil, getSelectionOutput{
+			X1:      sel.X1,
+			Y1:      sel.Y1,
+			Z1:      sel.Z1,
+			Message: "partial selection: pos1 set, waiting for pos2",
+		}, nil
+	}
+	if !hasP1 && hasP2 {
+		return nil, getSelectionOutput{
+			X2:      sel.X2,
+			Y2:      sel.Y2,
+			Z2:      sel.Z2,
+			Message: "partial selection: pos2 set, waiting for pos1",
+		}, nil
+	}
+	return toolError("no selection set"), getSelectionOutput{}, nil
 }
 
 // handleDetectGamemode returns the bot's current game mode.

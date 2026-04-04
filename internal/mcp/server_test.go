@@ -693,7 +693,7 @@ func TestSetSelectionWhenConnected(t *testing.T) {
 	if result.IsError {
 		t.Errorf("set-selection returned error: %v", result.Content)
 	}
-	if !mock.hasSelection {
+	if !mock.hasPos1 || !mock.hasPos2 {
 		t.Error("selection was not stored")
 	}
 	if mock.selection.X1 != 0 || mock.selection.Y2 != 70 {
@@ -721,7 +721,7 @@ func TestSetSelectionWhenDisconnected(t *testing.T) {
 func TestGetSelectionWhenSet(t *testing.T) {
 	session := testSession(t, &mockBotState{
 		connected:    true,
-		hasSelection: true,
+		hasPos1: true, hasPos2: true,
 		selection:    engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
 	})
 
@@ -736,10 +736,29 @@ func TestGetSelectionWhenSet(t *testing.T) {
 	}
 }
 
+func TestGetSelectionPartialPos1Only(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		hasPos1:   true,
+		hasPos2:   false,
+		selection: engine.Selection{X1: 100, Y1: 64, Z1: -200},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "get-selection",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get-selection): %v", err)
+	}
+	if result.IsError {
+		t.Error("get-selection should not return error for partial selection (pos1 only)")
+	}
+}
+
 func TestGetSelectionWhenNotSet(t *testing.T) {
 	session := testSession(t, &mockBotState{
 		connected:    true,
-		hasSelection: false,
+		hasPos1: false, hasPos2: false,
 	})
 
 	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
