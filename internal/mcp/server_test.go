@@ -21,7 +21,7 @@ func testLogger() *slog.Logger {
 // and returns the session. The server and client are torn down when the test ends.
 func testSession(t *testing.T, state BotState) *gomcp.ClientSession {
 	t.Helper()
-	srv := New("test-version", testLogger(), state)
+	srv := New("test-version", testLogger(), state, nil)
 
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
@@ -44,7 +44,7 @@ func testSession(t *testing.T, state BotState) *gomcp.ClientSession {
 }
 
 func TestNewCreatesServer(t *testing.T) {
-	srv := New("test-version", testLogger(), &mockBotState{})
+	srv := New("test-version", testLogger(), &mockBotState{}, nil)
 	if srv == nil {
 		t.Fatal("New() returned nil")
 	}
@@ -2599,7 +2599,7 @@ func TestCopyUsesRunWECommandNotBulk(t *testing.T) {
 }
 
 func TestServerRunCancellation(t *testing.T) {
-	srv := New("test-version", testLogger(), &mockBotState{})
+	srv := New("test-version", testLogger(), &mockBotState{}, nil)
 
 	_, serverTransport := gomcp.NewInMemoryTransports()
 

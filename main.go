@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"golang.org/x/sync/errgroup"
@@ -17,6 +18,7 @@ import (
 	cclog "github.com/kaylincoded/clankercraft/internal/log"
 	"github.com/kaylincoded/clankercraft/internal/mcp"
 	"github.com/kaylincoded/clankercraft/internal/rcon"
+	"github.com/kaylincoded/clankercraft/internal/schematic"
 	"github.com/spf13/cobra"
 )
 
@@ -80,16 +82,31 @@ func run(cmd *cobra.Command, args []string) error {
 		logger.Warn("ANTHROPIC_API_KEY not set — LLM features disabled")
 	}
 
+	// Load schematics from ~/.config/clankercraft/schematics/ (non-fatal on error).
+	var library *schematic.Library
+	if home, homeErr := os.UserHomeDir(); homeErr != nil {
+		logger.Warn("cannot determine home directory, skipping schematics", slog.Any("error", homeErr))
+	} else {
+		schemDir := filepath.Join(home, ".config", "clankercraft", "schematics")
+		library = schematic.NewLibrary(schemDir, logger)
+		if err := library.Load(); err != nil {
+			logger.Warn("failed to load schematics", slog.Any("error", err))
+			library = nil
+		} else {
+			logger.Info("schematics indexed", slog.Int("count", library.Len()))
+		}
+	}
+
 	// Start MC connection and MCP server concurrently.
 	// errgroup cancels gctx on first error, so a broken MCP transport
 	// tears down the MC connection (and vice versa).
 	conn := connection.New(cfg, logger)
 	conn.SetRCON(rconClient)
-	mcpServer := mcp.New(version, logger, conn)
+	mcpServer := mcp.New(version, logger, conn, library)
 
 	// Wire agent loop: whisper → LLM → tool execution → whisper reply.
 	if llmProvider != nil {
-		toolExec := agent.NewToolExecutor(conn)
+		toolExec := agent.NewToolExecutor(conn, library)
 		agentLoop := agent.NewAgent(llmProvider, toolExec, logger)
 		agentLoop.Start(ctx)
 		conn.OnWhisper(func(sender, msg string) {

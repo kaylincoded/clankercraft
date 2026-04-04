@@ -97,5 +97,5 @@ development_status:
   epic-6: in-progress
   6-1-goreleaser-configuration: done
   6-2-ci-pipeline: done
-  6-3-schematic-directory-loading: backlog
+  6-3-schematic-directory-loading: done
   epic-6-retrospective: optional

@@ -39,7 +39,7 @@ func TestHandleMessageSingleTextResponse(t *testing.T) {
 		},
 	}
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	agent := NewAgent(provider, te, testLogger())
 
 	var reply string
@@ -71,7 +71,7 @@ func TestHandleMessageToolCallThenText(t *testing.T) {
 		},
 	}
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	agent := NewAgent(provider, te, testLogger())
 
 	var reply string
@@ -107,7 +107,7 @@ func TestHandleMessageToolCallError(t *testing.T) {
 	}
 	// Bot is not connected — get-position will fail.
 	bot := &mockBot{connected: false}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	agent := NewAgent(provider, te, testLogger())
 
 	var reply string
@@ -150,7 +150,7 @@ func TestHandleMessageMaxIterations(t *testing.T) {
 	}
 	provider := &mockProvider{responses: responses}
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	agent := NewAgent(provider, te, testLogger(), WithMaxIterations(3))
 
 	var reply string
@@ -181,7 +181,7 @@ func TestHandleMessageContextCancellation(t *testing.T) {
 		},
 	}
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	agent := NewAgent(provider, te, testLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -223,7 +223,7 @@ func TestHandleMessagePreservesHistory(t *testing.T) {
 	}
 
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	ag := NewAgent(provider, te, testLogger())
 
 	var reply string
@@ -248,7 +248,7 @@ func TestHandleMessageIsolatesPlayers(t *testing.T) {
 	}
 
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	ag := NewAgent(provider, te, testLogger())
 	noopReply := func(msg string) error { return nil }
 
@@ -275,7 +275,7 @@ func TestHandleMessageResetCommand(t *testing.T) {
 	}
 
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	ag := NewAgent(provider, te, testLogger())
 
 	var reply string
@@ -310,7 +310,7 @@ func TestHandleMessageResetCommandVariants(t *testing.T) {
 	}
 
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	ag := NewAgent(provider, te, testLogger())
 
 	variants := []string{"reset", "clear", "new conversation", "forget", "Reset", "CLEAR", "  forget  "}
@@ -341,7 +341,7 @@ func TestHandleMessagePlayerNamePrefix(t *testing.T) {
 		},
 	}
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	ag := NewAgent(provider, te, testLogger())
 
 	_ = ag.HandleMessage(context.Background(), "PixiisRobot", "come here", func(string) error { return nil })
@@ -364,7 +364,7 @@ func TestHandleMessageTrimming(t *testing.T) {
 	}
 
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	ag := NewAgent(provider, te, testLogger(), WithMaxConversationMessages(4))
 	noopReply := func(msg string) error { return nil }
 

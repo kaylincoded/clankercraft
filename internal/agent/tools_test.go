@@ -3,10 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/kaylincoded/clankercraft/internal/connection"
 	"github.com/kaylincoded/clankercraft/internal/engine"
+	"github.com/kaylincoded/clankercraft/internal/schematic"
 )
 
 // mockBot implements mcp.BotState for testing.
@@ -68,16 +72,16 @@ func (m *mockBot) SendWhisper(player, message string) error       { return nil }
 
 func TestToolDefsCount(t *testing.T) {
 	bot := &mockBot{}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	defs := te.ToolDefs()
-	if len(defs) != 35 {
-		t.Fatalf("got %d tool defs, want 35", len(defs))
+	if len(defs) != 37 {
+		t.Fatalf("got %d tool defs, want 37", len(defs))
 	}
 }
 
 func TestToolDefsHaveNamesAndDescriptions(t *testing.T) {
 	bot := &mockBot{}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	for _, def := range te.ToolDefs() {
 		if def.Name == "" {
 			t.Error("tool def has empty name")
@@ -90,7 +94,7 @@ func TestToolDefsHaveNamesAndDescriptions(t *testing.T) {
 
 func TestToolDefsHaveValidSchemas(t *testing.T) {
 	bot := &mockBot{}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	for _, def := range te.ToolDefs() {
 		if len(def.InputSchema) > 0 {
 			var m map[string]any
@@ -106,7 +110,7 @@ func TestToolDefsHaveValidSchemas(t *testing.T) {
 
 func TestExecutePing(t *testing.T) {
 	bot := &mockBot{}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	result, err := te.Execute(context.Background(), "ping", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -120,7 +124,7 @@ func TestExecutePing(t *testing.T) {
 
 func TestExecuteUnknownTool(t *testing.T) {
 	bot := &mockBot{}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	_, err := te.Execute(context.Background(), "nonexistent", nil)
 	if err == nil {
 		t.Fatal("expected error for unknown tool")
@@ -136,7 +140,7 @@ func TestExecuteGetPositionConnected(t *testing.T) {
 		positionKnown: true,
 		position:      connection.Position{X: 10.5, Y: 64.0, Z: -30.7},
 	}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	result, err := te.Execute(context.Background(), "get-position", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -153,7 +157,7 @@ func TestExecuteGetPositionConnected(t *testing.T) {
 
 func TestExecuteGetPositionDisconnected(t *testing.T) {
 	bot := &mockBot{connected: false}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	_, err := te.Execute(context.Background(), "get-position", nil)
 	if err == nil {
 		t.Fatal("expected error when disconnected")
@@ -168,7 +172,7 @@ func TestExecuteWESetWithSelection(t *testing.T) {
 		selection:    engine.Selection{X1: 0, Y1: 0, Z1: 0, X2: 10, Y2: 10, Z2: 10},
 		weResp:       "1000 blocks changed",
 	}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	result, err := te.Execute(context.Background(), "we-set", json.RawMessage(`{"pattern":"stone"}`))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -189,7 +193,7 @@ func TestExecuteWESetNoSelection(t *testing.T) {
 		tier:         engine.TierWorldEdit,
 		hasSelection: false,
 	}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	_, err := te.Execute(context.Background(), "we-set", json.RawMessage(`{"pattern":"stone"}`))
 	if err == nil {
 		t.Fatal("expected error without selection")
@@ -202,7 +206,7 @@ func TestExecuteWESetNoWorldEdit(t *testing.T) {
 		tier:         engine.TierVanilla,
 		hasSelection: true,
 	}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	_, err := te.Execute(context.Background(), "we-set", json.RawMessage(`{"pattern":"stone"}`))
 	if err == nil {
 		t.Fatal("expected error without WorldEdit")
@@ -214,7 +218,7 @@ func TestExecuteTeleportToPlayerConnected(t *testing.T) {
 		connected: true,
 		cmdResp:   "Teleported Bot to Steve",
 	}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	result, err := te.Execute(context.Background(), "teleport-to-player", json.RawMessage(`{"player":"Steve"}`))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -231,7 +235,7 @@ func TestExecuteTeleportToPlayerConnected(t *testing.T) {
 
 func TestExecuteTeleportToPlayerDisconnected(t *testing.T) {
 	bot := &mockBot{connected: false}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	_, err := te.Execute(context.Background(), "teleport-to-player", json.RawMessage(`{"player":"Steve"}`))
 	if err == nil {
 		t.Fatal("expected error when disconnected")
@@ -240,7 +244,7 @@ func TestExecuteTeleportToPlayerDisconnected(t *testing.T) {
 
 func TestExecuteTeleportToPlayerInvalidName(t *testing.T) {
 	bot := &mockBot{connected: true}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 
 	cases := []struct {
 		name  string
@@ -283,7 +287,7 @@ func TestExecuteSetblock(t *testing.T) {
 		connected: true,
 		cmdResp:   "Changed the block",
 	}
-	te := NewToolExecutor(bot)
+	te := NewToolExecutor(bot, nil)
 	result, err := te.Execute(context.Background(), "setblock", json.RawMessage(`{"x":10,"y":64,"z":-30,"block":"stone"}`))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -295,5 +299,98 @@ func TestExecuteSetblock(t *testing.T) {
 	json.Unmarshal([]byte(result), &m)
 	if m["response"] != "Changed the block" {
 		t.Errorf("response = %q", m["response"])
+	}
+}
+
+func TestListSchematicsEmpty(t *testing.T) {
+	bot := &mockBot{}
+	te := NewToolExecutor(bot, nil)
+	result, err := te.Execute(context.Background(), "list-schematics", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var list []schematic.SchematicInfo
+	if err := json.Unmarshal([]byte(result), &list); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if len(list) != 0 {
+		t.Errorf("expected empty list, got %d", len(list))
+	}
+}
+
+func TestListSchematicsWithLibrary(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"castle.schem", "bridge.schem"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("data"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lib := schematic.NewLibrary(dir, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	if err := lib.Load(); err != nil {
+		t.Fatal(err)
+	}
+
+	bot := &mockBot{}
+	te := NewToolExecutor(bot, lib)
+	result, err := te.Execute(context.Background(), "list-schematics", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var list []schematic.SchematicInfo
+	if err := json.Unmarshal([]byte(result), &list); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 schematics, got %d", len(list))
+	}
+	if list[0].Name != "bridge" || list[1].Name != "castle" {
+		t.Errorf("expected [bridge, castle], got [%s, %s]", list[0].Name, list[1].Name)
+	}
+}
+
+func TestLoadSchematicInvalidName(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "castle.schem"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	lib := schematic.NewLibrary(dir, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	if err := lib.Load(); err != nil {
+		t.Fatal(err)
+	}
+
+	bot := &mockBot{connected: true, tier: engine.TierWorldEdit}
+	te := NewToolExecutor(bot, lib)
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"path traversal", `{"name":"../../etc/passwd"}`},
+		{"spaces", `{"name":"my castle"}`},
+		{"dots", `{"name":"castle.backup"}`},
+		{"empty", `{"name":""}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := te.Execute(context.Background(), "load-schematic", json.RawMessage(tt.input))
+			if err == nil {
+				t.Fatal("expected error for invalid schematic name")
+			}
+		})
+	}
+}
+
+func TestIsValidSchematicName(t *testing.T) {
+	valid := []string{"castle", "my_bridge", "tower-3", "A_B-C"}
+	for _, name := range valid {
+		if !isValidSchematicName(name) {
+			t.Errorf("isValidSchematicName(%q) = false, want true", name)
+		}
+	}
+	invalid := []string{"", "../bad", "has space", "has.dot", "path/sep", "back\\slash"}
+	for _, name := range invalid {
+		if isValidSchematicName(name) {
+			t.Errorf("isValidSchematicName(%q) = true, want false", name)
+		}
 	}
 }

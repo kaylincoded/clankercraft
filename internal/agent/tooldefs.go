@@ -6,7 +6,7 @@ import (
 	"github.com/kaylincoded/clankercraft/internal/llm"
 )
 
-// buildToolDefs returns the static list of all 35 tools as LLM ToolDef.
+// buildToolDefs returns the static list of all 37 tools as LLM ToolDef.
 func (te *ToolExecutor) buildToolDefs() []llm.ToolDef {
 	return []llm.ToolDef{
 		td("ping", "Check if the bot is responsive", nil),
@@ -108,6 +108,11 @@ func (te *ToolExecutor) buildToolDefs() []llm.ToolDef {
 		)),
 		td("we-undo", "Undo the last WorldEdit operation using //undo", nil),
 		td("we-redo", "Redo the last undone WorldEdit operation using //redo", nil),
+		// Schematics
+		td("list-schematics", "List all available schematics that can be loaded and pasted", nil),
+		td("load-schematic", "Load a schematic by name and paste it at the bot's current position (requires WorldEdit)", schema(
+			prop("name", "string", "name of the schematic to load (use list-schematics to see available)"),
+		).require("name")),
 		// Teleportation
 		td("teleport-to-player", "Teleport the bot to a player's location using /tp", schema(
 			prop("player", "string", "Minecraft username of the player to teleport to"),

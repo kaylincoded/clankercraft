@@ -9,17 +9,19 @@ import (
 	"github.com/kaylincoded/clankercraft/internal/engine"
 	"github.com/kaylincoded/clankercraft/internal/llm"
 	"github.com/kaylincoded/clankercraft/internal/mcp"
+	"github.com/kaylincoded/clankercraft/internal/schematic"
 )
 
 // ToolExecutor bridges LLM tool calls to BotState methods.
 type ToolExecutor struct {
-	bot  mcp.BotState
-	defs []llm.ToolDef
+	bot     mcp.BotState
+	library *schematic.Library
+	defs    []llm.ToolDef
 }
 
-// NewToolExecutor creates a ToolExecutor backed by the given BotState.
-func NewToolExecutor(bot mcp.BotState) *ToolExecutor {
-	te := &ToolExecutor{bot: bot}
+// NewToolExecutor creates a ToolExecutor backed by the given BotState and optional schematic library.
+func NewToolExecutor(bot mcp.BotState, library *schematic.Library) *ToolExecutor {
+	te := &ToolExecutor{bot: bot, library: library}
 	te.defs = te.buildToolDefs()
 	return te
 }
@@ -564,6 +566,49 @@ func (te *ToolExecutor) Execute(_ context.Context, name string, input json.RawMe
 		}
 		return jsonResult(map[string]string{"response": resp, "message": fmt.Sprintf("/clone: %s", resp)})
 
+	case "list-schematics":
+		if te.library == nil {
+			return jsonResult([]schematic.SchematicInfo{})
+		}
+		return jsonResult(te.library.List())
+
+	case "load-schematic":
+		if te.library == nil {
+			return "", fmt.Errorf("no schematics loaded")
+		}
+		if !te.bot.IsConnected() {
+			return "", fmt.Errorf("bot is not connected to a Minecraft server")
+		}
+		tier := te.bot.GetTier()
+		if tier != engine.TierWorldEdit && tier != engine.TierFAWE {
+			return "", fmt.Errorf("WorldEdit is not available on this server (tier: %s)", tier)
+		}
+		var in struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(input, &in); err != nil {
+			return "", fmt.Errorf("invalid input: %w", err)
+		}
+		if !isValidSchematicName(in.Name) {
+			return "", fmt.Errorf("invalid schematic name: %q (only letters, digits, underscores, hyphens allowed)", in.Name)
+		}
+		if !te.library.Has(in.Name) {
+			return "", fmt.Errorf("schematic not found: %q (use list-schematics to see available)", in.Name)
+		}
+		loadResp, err := te.bot.RunWECommand(fmt.Sprintf("schem load %s", in.Name))
+		if err != nil {
+			return "", fmt.Errorf("//schem load failed: %w", err)
+		}
+		pasteResp, err := te.bot.RunWECommand("paste")
+		if err != nil {
+			return "", fmt.Errorf("//paste failed: %w", err)
+		}
+		return jsonResult(map[string]string{
+			"load_response":  loadResp,
+			"paste_response": pasteResp,
+			"message":        fmt.Sprintf("Loaded and pasted schematic %q", in.Name),
+		})
+
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
@@ -679,6 +724,22 @@ func isValidPlayerName(name string) bool {
 		isAlpha := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 		isDigit := c >= '0' && c <= '9'
 		if !isAlpha && !isDigit && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidSchematicName checks that a schematic name is safe for command interpolation.
+// Valid names: 1+ characters, alphanumeric + underscore + hyphen only.
+func isValidSchematicName(name string) bool {
+	if len(name) == 0 {
+		return false
+	}
+	for _, c := range name {
+		isAlpha := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		isDigit := c >= '0' && c <= '9'
+		if !isAlpha && !isDigit && c != '_' && c != '-' {
 			return false
 		}
 	}

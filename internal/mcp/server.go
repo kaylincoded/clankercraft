@@ -8,6 +8,8 @@ import (
 	"regexp"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/kaylincoded/clankercraft/internal/schematic"
 )
 
 // ValidPatternRe matches valid WorldEdit block patterns (letters, digits, underscores, colons, commas, percentages, etc.).
@@ -15,9 +17,10 @@ var ValidPatternRe = regexp.MustCompile(`^[a-zA-Z0-9_:,%!^.\[\]]+$`)
 
 // Server wraps the MCP SDK server with clankercraft-specific configuration.
 type Server struct {
-	server *gomcp.Server
-	logger *slog.Logger
-	conn   BotState
+	server  *gomcp.Server
+	logger  *slog.Logger
+	conn    BotState
+	library *schematic.Library
 }
 
 // pingInput is the input schema for the ping tool (no arguments).
@@ -346,7 +349,7 @@ type scanAreaOutput struct {
 }
 
 // New creates a configured MCP server with registered tools.
-func New(version string, logger *slog.Logger, conn BotState) *Server {
+func New(version string, logger *slog.Logger, conn BotState, library *schematic.Library) *Server {
 	s := gomcp.NewServer(
 		&gomcp.Implementation{
 			Name:    "clankercraft",
@@ -358,9 +361,10 @@ func New(version string, logger *slog.Logger, conn BotState) *Server {
 	)
 
 	srv := &Server{
-		server: s,
-		logger: logger,
-		conn:   conn,
+		server:  s,
+		logger:  logger,
+		conn:    conn,
+		library: library,
 	}
 	srv.registerTools()
 	return srv
@@ -571,6 +575,18 @@ func (s *Server) registerTools() {
 		Name:        "clone",
 		Description: "Clone a region to a destination using /clone (overlapping source and destination may produce undefined results)",
 	}, requireConnection(s.conn, s.handleClone))
+
+	// list-schematics — no connection required
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "list-schematics",
+		Description: "List all available schematics that can be loaded and pasted",
+	}, s.handleListSchematics)
+
+	// load-schematic — requires WorldEdit
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "load-schematic",
+		Description: "Load a schematic by name and paste it at the bot's current position (requires WorldEdit)",
+	}, requireWorldEdit(s.conn, s.handleLoadSchematic))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -1165,6 +1181,67 @@ func (s *Server) handleDetectWorldedit(_ context.Context, _ *gomcp.CallToolReque
 	return nil, detectWorldeditOutput{
 		Tier:    tier.String(),
 		Message: fmt.Sprintf("worldedit tier: %s", tier.String()),
+	}, nil
+}
+
+// listSchematicsInput is the input schema for the list-schematics tool (no arguments).
+type listSchematicsInput struct{}
+
+// listSchematicsOutput is the output schema for the list-schematics tool.
+type listSchematicsOutput struct {
+	Schematics []schematic.SchematicInfo `json:"schematics"`
+	Count      int                       `json:"count"`
+}
+
+// loadSchematicInput is the input schema for the load-schematic tool.
+type loadSchematicInput struct {
+	Name string `json:"name"`
+}
+
+// loadSchematicOutput is the output schema for the load-schematic tool.
+type loadSchematicOutput struct {
+	LoadResponse  string `json:"load_response"`
+	PasteResponse string `json:"paste_response"`
+	Message       string `json:"message"`
+}
+
+// handleListSchematics returns all indexed schematics.
+func (s *Server) handleListSchematics(_ context.Context, _ *gomcp.CallToolRequest, _ listSchematicsInput) (*gomcp.CallToolResult, listSchematicsOutput, error) {
+	if s.library == nil {
+		return nil, listSchematicsOutput{Schematics: []schematic.SchematicInfo{}, Count: 0}, nil
+	}
+	list := s.library.List()
+	return nil, listSchematicsOutput{Schematics: list, Count: len(list)}, nil
+}
+
+// validSchematicNameRe matches safe schematic names (letters, digits, underscores, hyphens).
+var validSchematicNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// handleLoadSchematic loads and pastes a schematic by name via WorldEdit.
+func (s *Server) handleLoadSchematic(_ context.Context, _ *gomcp.CallToolRequest, input loadSchematicInput) (*gomcp.CallToolResult, loadSchematicOutput, error) {
+	if s.library == nil {
+		return toolError("no schematics loaded"), loadSchematicOutput{}, nil
+	}
+	if !validSchematicNameRe.MatchString(input.Name) {
+		return toolError(fmt.Sprintf("invalid schematic name: %q", input.Name)), loadSchematicOutput{}, nil
+	}
+	if !s.library.Has(input.Name) {
+		return toolError(fmt.Sprintf("schematic not found: %q", input.Name)), loadSchematicOutput{}, nil
+	}
+
+	loadResp, err := s.conn.RunWECommand(fmt.Sprintf("schem load %s", input.Name))
+	if err != nil {
+		return toolError(fmt.Sprintf("//schem load failed: %v", err)), loadSchematicOutput{}, nil
+	}
+	pasteResp, err := s.conn.RunWECommand("paste")
+	if err != nil {
+		return toolError(fmt.Sprintf("//paste failed: %v", err)), loadSchematicOutput{}, nil
+	}
+
+	return nil, loadSchematicOutput{
+		LoadResponse:  loadResp,
+		PasteResponse: pasteResp,
+		Message:       fmt.Sprintf("Loaded and pasted schematic %q", input.Name),
 	}, nil
 }
 
