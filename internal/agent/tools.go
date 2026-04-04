@@ -465,6 +465,27 @@ func (te *ToolExecutor) Execute(_ context.Context, name string, input json.RawMe
 	case "we-redo":
 		return te.weTierCmd(input, func() (string, error) { return "redo", nil })
 
+	// Teleportation
+	case "teleport-to-player":
+		if !te.bot.IsConnected() {
+			return "", fmt.Errorf("bot is not connected to a Minecraft server")
+		}
+		var in struct {
+			Player string `json:"player"`
+		}
+		if err := json.Unmarshal(input, &in); err != nil {
+			return "", fmt.Errorf("invalid input: %w", err)
+		}
+		if !isValidPlayerName(in.Player) {
+			return "", fmt.Errorf("invalid player name: %q", in.Player)
+		}
+		cmd := fmt.Sprintf("tp @s %s", in.Player)
+		resp, err := te.bot.RunBulkCommand(cmd)
+		if err != nil {
+			return "", fmt.Errorf("/tp failed: %w", err)
+		}
+		return jsonResult(map[string]string{"response": resp, "message": fmt.Sprintf("Teleported to %s", in.Player)})
+
 	// Vanilla commands
 	case "setblock":
 		if !te.bot.IsConnected() {
@@ -646,6 +667,20 @@ func calcYawPitch(fromX, fromY, fromZ, toX, toY, toZ float64) (yaw, pitch float3
 	yaw = float32(-math.Atan2(dx, dz) * 180 / math.Pi)
 	pitch = float32(-math.Atan2(dy, dist) * 180 / math.Pi)
 	return yaw, pitch
+}
+
+// isValidPlayerName checks that a Minecraft username is safe for command interpolation.
+// Valid names: 3-16 characters, alphanumeric + underscore only.
+func isValidPlayerName(name string) bool {
+	if len(name) < 3 || len(name) > 16 {
+		return false
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // validatePattern checks that a WorldEdit pattern is safe.

@@ -70,8 +70,8 @@ func TestToolDefsCount(t *testing.T) {
 	bot := &mockBot{}
 	te := NewToolExecutor(bot)
 	defs := te.ToolDefs()
-	if len(defs) != 34 {
-		t.Fatalf("got %d tool defs, want 34", len(defs))
+	if len(defs) != 35 {
+		t.Fatalf("got %d tool defs, want 35", len(defs))
 	}
 }
 
@@ -206,6 +206,75 @@ func TestExecuteWESetNoWorldEdit(t *testing.T) {
 	_, err := te.Execute(context.Background(), "we-set", json.RawMessage(`{"pattern":"stone"}`))
 	if err == nil {
 		t.Fatal("expected error without WorldEdit")
+	}
+}
+
+func TestExecuteTeleportToPlayerConnected(t *testing.T) {
+	bot := &mockBot{
+		connected: true,
+		cmdResp:   "Teleported Bot to Steve",
+	}
+	te := NewToolExecutor(bot)
+	result, err := te.Execute(context.Background(), "teleport-to-player", json.RawMessage(`{"player":"Steve"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bot.lastCmd != "tp @s Steve" {
+		t.Errorf("cmd = %q, want 'tp @s Steve'", bot.lastCmd)
+	}
+	var m map[string]string
+	json.Unmarshal([]byte(result), &m)
+	if m["message"] != "Teleported to Steve" {
+		t.Errorf("message = %q", m["message"])
+	}
+}
+
+func TestExecuteTeleportToPlayerDisconnected(t *testing.T) {
+	bot := &mockBot{connected: false}
+	te := NewToolExecutor(bot)
+	_, err := te.Execute(context.Background(), "teleport-to-player", json.RawMessage(`{"player":"Steve"}`))
+	if err == nil {
+		t.Fatal("expected error when disconnected")
+	}
+}
+
+func TestExecuteTeleportToPlayerInvalidName(t *testing.T) {
+	bot := &mockBot{connected: true}
+	te := NewToolExecutor(bot)
+
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"spaces", `{"player":"Steve Jobs"}`},
+		{"special chars", `{"player":"Steve;drop"}`},
+		{"too short", `{"player":"AB"}`},
+		{"too long", `{"player":"ABCDEFGHIJKLMNOPQR"}`},
+		{"slash injection", `{"player":"../etc/passwd"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := te.Execute(context.Background(), "teleport-to-player", json.RawMessage(tc.input))
+			if err == nil {
+				t.Error("expected error for invalid player name")
+			}
+		})
+	}
+}
+
+func TestIsValidPlayerName(t *testing.T) {
+	valid := []string{"Steve", "Alex", "abc", "A_B_C_D_E_F_G_H", "Player_123"}
+	for _, name := range valid {
+		if !isValidPlayerName(name) {
+			t.Errorf("expected %q to be valid", name)
+		}
+	}
+
+	invalid := []string{"", "AB", "ABCDEFGHIJKLMNOPQR", "has space", "semi;colon", "slash/path", "dot.name", "a-b"}
+	for _, name := range invalid {
+		if isValidPlayerName(name) {
+			t.Errorf("expected %q to be invalid", name)
+		}
 	}
 }
 

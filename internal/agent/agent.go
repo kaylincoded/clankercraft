@@ -28,6 +28,8 @@ When a player asks you to build something:
 
 You have access to WorldEdit commands (sphere, cylinder, pyramid, copy/paste, etc.), vanilla commands (setblock, fill, clone), and world query tools (scan-area, find-block, read-sign).
 
+When a player asks you to "come here", "summon", "teleport to me", or similar, use the teleport-to-player tool with their username (shown in the [username]: prefix of each message). After arriving, confirm and ask what to build.
+
 Be concise in your responses. Report what you built and any issues encountered.`
 
 // AgentOption configures an Agent.
@@ -117,10 +119,11 @@ func (a *Agent) HandleMessage(ctx context.Context, player, message string, sendR
 	)
 
 	// Load existing conversation history + new user message.
+	// Prefix with player name so the LLM knows who is speaking (needed for teleport-to-player).
 	history := a.conversations.Snapshot(player)
 	messages := make([]llm.Message, 0, len(history)+1)
 	messages = append(messages, history...)
-	messages = append(messages, llm.Message{Role: llm.RoleUser, Content: message})
+	messages = append(messages, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("[%s]: %s", player, message)})
 
 	historyLen := len(history)
 	tools := a.executor.ToolDefs()

@@ -209,14 +209,14 @@ func TestHandleMessagePreservesHistory(t *testing.T) {
 			if len(msgs) != 3 {
 				t.Errorf("call 2: got %d messages, want 3", len(msgs))
 			}
-			if msgs[0].Content != "build a wall" {
-				t.Errorf("call 2: msg[0] = %q, want 'build a wall'", msgs[0].Content)
+			if msgs[0].Content != "[Steve]: build a wall" {
+				t.Errorf("call 2: msg[0] = %q, want '[Steve]: build a wall'", msgs[0].Content)
 			}
 			if msgs[1].Content != "Built a wall!" {
 				t.Errorf("call 2: msg[1] = %q, want 'Built a wall!'", msgs[1].Content)
 			}
-			if msgs[2].Content != "make it taller" {
-				t.Errorf("call 2: msg[2] = %q, want 'make it taller'", msgs[2].Content)
+			if msgs[2].Content != "[Steve]: make it taller" {
+				t.Errorf("call 2: msg[2] = %q, want '[Steve]: make it taller'", msgs[2].Content)
 			}
 			return &llm.Response{Content: "Made it taller!", StopReason: llm.StopReasonEndTurn}, nil
 		},
@@ -332,6 +332,28 @@ func TestHandleMessageResetCommandVariants(t *testing.T) {
 	}
 }
 
+func TestHandleMessagePlayerNamePrefix(t *testing.T) {
+	var capturedMsgs []llm.Message
+	provider := &trackingProvider{
+		chatFn: func(_ context.Context, msgs []llm.Message, _ []llm.ToolDef) (*llm.Response, error) {
+			capturedMsgs = msgs
+			return &llm.Response{Content: "ok", StopReason: llm.StopReasonEndTurn}, nil
+		},
+	}
+	bot := &mockBot{connected: true}
+	te := NewToolExecutor(bot)
+	ag := NewAgent(provider, te, testLogger())
+
+	_ = ag.HandleMessage(context.Background(), "PixiisRobot", "come here", func(string) error { return nil })
+
+	if len(capturedMsgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(capturedMsgs))
+	}
+	if capturedMsgs[0].Content != "[PixiisRobot]: come here" {
+		t.Errorf("message = %q, want '[PixiisRobot]: come here'", capturedMsgs[0].Content)
+	}
+}
+
 func TestHandleMessageTrimming(t *testing.T) {
 	callCount := 0
 	provider := &trackingProvider{
@@ -356,7 +378,7 @@ func TestHandleMessageTrimming(t *testing.T) {
 		t.Fatalf("after trimming, got %d messages, want 4", len(snap))
 	}
 	// First message preserved.
-	if snap[0].Content != "msg-0" {
+	if snap[0].Content != "[Steve]: msg-0" {
 		t.Errorf("first = %q, want original context", snap[0].Content)
 	}
 }
