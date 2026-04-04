@@ -25,6 +25,7 @@ import (
 	"github.com/Tnze/go-mc/level/block"
 	pk "github.com/Tnze/go-mc/net/packet"
 	"github.com/Tnze/go-mc/offline"
+	chatpkg "github.com/kaylincoded/clankercraft/internal/chat"
 	"github.com/kaylincoded/clankercraft/internal/config"
 	"github.com/kaylincoded/clankercraft/internal/engine"
 )
@@ -156,7 +157,8 @@ type Connection struct {
 	hasPos1        bool             // true after pos1 is set (wand or programmatic)
 	hasPos2        bool             // true after pos2 is set (wand or programmatic)
 	wandDone       chan struct{}     // closed on disconnect to stop wand listener
-	rcon           RCONExecutor     // optional RCON client for bulk command routing
+	rcon            RCONExecutor      // optional RCON client for bulk command routing
+	whisperListener *chatpkg.Listener // optional whisper event listener
 }
 
 // New creates a new Connection configured from the given config.
@@ -166,6 +168,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Connection {
 		logger:          logger,
 		authFn:          Authenticate,
 		shutdownTimeout: ShutdownTimeout,
+		whisperListener: chatpkg.NewListener(),
 	}
 }
 
@@ -247,6 +250,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 			text := m.ClearString()
 			c.logger.Info("chat:system", slog.String("message", text), slog.Bool("overlay", overlay))
 			c.dispatchChat(text)
+			c.whisperListener.HandleSystemChat(text)
 			return nil
 		},
 		PlayerChatMessage: func(m chat.Message, validated bool) error {
@@ -943,6 +947,13 @@ func (c *Connection) SetRCON(r RCONExecutor) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.rcon = r
+}
+
+// OnWhisper registers a callback that fires when a whisper is received.
+func (c *Connection) OnWhisper(handler func(sender, message string)) {
+	c.whisperListener.OnWhisper(func(w chatpkg.Whisper) {
+		handler(w.Sender, w.Message)
+	})
 }
 
 // RunBulkWECommand sends a WorldEdit command, preferring RCON if available.

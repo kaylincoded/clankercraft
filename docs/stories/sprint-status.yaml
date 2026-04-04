@@ -84,8 +84,8 @@ development_status:
   epic-4-retrospective: optional
 
   # Epic 5: In-Game Chat Interface & LLM Integration
-  epic-5: backlog
-  5-1-whisper-listener: backlog
+  epic-5: in-progress
+  5-1-whisper-listener: done
   5-2-chat-response-system: backlog
   5-3-llm-provider-interface-claude-implementation: backlog
   5-4-tool-calling-agent-loop: backlog

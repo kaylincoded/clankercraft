@@ -121,6 +121,8 @@ func (m *mockBotState) RunBulkCommand(command string) (string, error) {
 	return m.RunCommand(command)
 }
 
+func (m *mockBotState) OnWhisper(handler func(sender, message string)) {}
+
 func TestRequireWETierAllowsWithoutSelection(t *testing.T) {
 	mock := &mockBotState{
 		connected: true,
