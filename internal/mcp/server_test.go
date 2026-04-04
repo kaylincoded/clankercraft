@@ -677,6 +677,96 @@ func TestDetectGamemodeWhenDisconnected(t *testing.T) {
 	}
 }
 
+// --- set-selection tool tests ---
+
+func TestSetSelectionWhenConnected(t *testing.T) {
+	mock := &mockBotState{connected: true}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "set-selection",
+		Arguments: map[string]any{"x1": 0, "y1": 64, "z1": 0, "x2": 10, "y2": 70, "z2": 10},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(set-selection): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("set-selection returned error: %v", result.Content)
+	}
+	if !mock.hasSelection {
+		t.Error("selection was not stored")
+	}
+	if mock.selection.X1 != 0 || mock.selection.Y2 != 70 {
+		t.Errorf("selection = %+v, want pos1=(0,64,0) pos2=(10,70,10)", mock.selection)
+	}
+}
+
+func TestSetSelectionWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "set-selection",
+		Arguments: map[string]any{"x1": 0, "y1": 64, "z1": 0, "x2": 10, "y2": 70, "z2": 10},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(set-selection): %v", err)
+	}
+	if !result.IsError {
+		t.Error("set-selection should return error when disconnected")
+	}
+}
+
+// --- get-selection tool tests ---
+
+func TestGetSelectionWhenSet(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected:    true,
+		hasSelection: true,
+		selection:    engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "get-selection",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get-selection): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("get-selection returned error: %v", result.Content)
+	}
+}
+
+func TestGetSelectionWhenNotSet(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected:    true,
+		hasSelection: false,
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "get-selection",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get-selection): %v", err)
+	}
+	if !result.IsError {
+		t.Error("get-selection should return error when no selection set")
+	}
+}
+
+func TestGetSelectionWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "get-selection",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get-selection): %v", err)
+	}
+	if !result.IsError {
+		t.Error("get-selection should return error when disconnected")
+	}
+}
+
 // --- detect-worldedit tool tests ---
 
 func TestDetectWorldeditReturnsWorldEdit(t *testing.T) {

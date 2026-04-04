@@ -630,6 +630,162 @@ func TestResetTierOnDisconnect(t *testing.T) {
 	}
 }
 
+func TestSetSelectionStoresCoordinates(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	// No selection initially
+	_, ok := conn.GetSelection()
+	if ok {
+		t.Error("GetSelection() should return false before SetSelection")
+	}
+
+	conn.mu.Lock()
+	conn.tier = engine.TierVanilla
+	conn.mu.Unlock()
+
+	err := conn.SetSelection(0, 64, 0, 10, 70, 10)
+	if err != nil {
+		t.Fatalf("SetSelection() returned error: %v", err)
+	}
+
+	sel, ok := conn.GetSelection()
+	if !ok {
+		t.Fatal("GetSelection() should return true after SetSelection")
+	}
+	if sel.X1 != 0 || sel.Y1 != 64 || sel.Z1 != 0 {
+		t.Errorf("pos1 = (%d, %d, %d), want (0, 64, 0)", sel.X1, sel.Y1, sel.Z1)
+	}
+	if sel.X2 != 10 || sel.Y2 != 70 || sel.Z2 != 10 {
+		t.Errorf("pos2 = (%d, %d, %d), want (10, 70, 10)", sel.X2, sel.Y2, sel.Z2)
+	}
+}
+
+func TestSetSelectionSendsWECommandsWhenWorldEdit(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	var commands []string
+	conn.sendCommandFn = func(cmd string) error {
+		commands = append(commands, cmd)
+		return nil
+	}
+
+	conn.mu.Lock()
+	conn.tier = engine.TierWorldEdit
+	conn.mu.Unlock()
+
+	err := conn.SetSelection(0, 64, 0, 10, 70, 10)
+	if err != nil {
+		t.Fatalf("SetSelection() returned error: %v", err)
+	}
+
+	if len(commands) != 2 {
+		t.Fatalf("expected 2 commands, got %d: %v", len(commands), commands)
+	}
+	if commands[0] != "/pos1 0,64,0" {
+		t.Errorf("command[0] = %q, want %q", commands[0], "/pos1 0,64,0")
+	}
+	if commands[1] != "/pos2 10,70,10" {
+		t.Errorf("command[1] = %q, want %q", commands[1], "/pos2 10,70,10")
+	}
+}
+
+func TestSetSelectionSendsWECommandsWhenFAWE(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	var commands []string
+	conn.sendCommandFn = func(cmd string) error {
+		commands = append(commands, cmd)
+		return nil
+	}
+
+	conn.mu.Lock()
+	conn.tier = engine.TierFAWE
+	conn.mu.Unlock()
+
+	err := conn.SetSelection(-10, 50, -20, 5, 80, 15)
+	if err != nil {
+		t.Fatalf("SetSelection() returned error: %v", err)
+	}
+
+	if len(commands) != 2 {
+		t.Fatalf("expected 2 commands, got %d", len(commands))
+	}
+	if commands[0] != "/pos1 -10,50,-20" {
+		t.Errorf("command[0] = %q, want %q", commands[0], "/pos1 -10,50,-20")
+	}
+	if commands[1] != "/pos2 5,80,15" {
+		t.Errorf("command[1] = %q, want %q", commands[1], "/pos2 5,80,15")
+	}
+}
+
+func TestSetSelectionSkipsCommandsWhenVanilla(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	var commands []string
+	conn.sendCommandFn = func(cmd string) error {
+		commands = append(commands, cmd)
+		return nil
+	}
+
+	conn.mu.Lock()
+	conn.tier = engine.TierVanilla
+	conn.mu.Unlock()
+
+	err := conn.SetSelection(0, 64, 0, 10, 70, 10)
+	if err != nil {
+		t.Fatalf("SetSelection() returned error: %v", err)
+	}
+
+	if len(commands) != 0 {
+		t.Errorf("expected no commands for vanilla, got %d: %v", len(commands), commands)
+	}
+
+	// Selection should still be stored
+	_, ok := conn.GetSelection()
+	if !ok {
+		t.Error("selection should be stored even in vanilla mode")
+	}
+}
+
+func TestSetSelectionReturnsErrorOnCommandFailure(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	conn.sendCommandFn = func(cmd string) error {
+		return fmt.Errorf("not connected")
+	}
+
+	conn.mu.Lock()
+	conn.tier = engine.TierWorldEdit
+	conn.mu.Unlock()
+
+	err := conn.SetSelection(0, 64, 0, 10, 70, 10)
+	if err == nil {
+		t.Fatal("SetSelection() should return error when SendCommand fails")
+	}
+
+	// Selection should still be in memory despite command failure
+	_, ok := conn.GetSelection()
+	if !ok {
+		t.Error("selection should be stored even when commands fail")
+	}
+}
+
+func TestResetSelectionOnDisconnect(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	conn.mu.Lock()
+	conn.selection = engine.Selection{X1: 1, Y1: 2, Z1: 3, X2: 4, Y2: 5, Z2: 6}
+	conn.hasSelection = true
+	conn.mu.Unlock()
+
+	conn.resetSelection()
+
+	_, ok := conn.GetSelection()
+	if ok {
+		t.Error("GetSelection() should return false after resetSelection")
+	}
+}
+
 func TestGetGamemodeValues(t *testing.T) {
 	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
 	// No player set — should return "unknown"

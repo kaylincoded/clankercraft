@@ -141,6 +141,35 @@ type detectWorldeditOutput struct {
 	Message string `json:"message"`
 }
 
+// setSelectionInput is the input schema for the set-selection tool.
+type setSelectionInput struct {
+	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
+	Y1 int `json:"y1" jsonschema:"first corner Y coordinate"`
+	Z1 int `json:"z1" jsonschema:"first corner Z coordinate"`
+	X2 int `json:"x2" jsonschema:"second corner X coordinate"`
+	Y2 int `json:"y2" jsonschema:"second corner Y coordinate"`
+	Z2 int `json:"z2" jsonschema:"second corner Z coordinate"`
+}
+
+// setSelectionOutput is the output schema for the set-selection tool.
+type setSelectionOutput struct {
+	Message string `json:"message"`
+}
+
+// getSelectionInput is the input schema for the get-selection tool (no arguments).
+type getSelectionInput struct{}
+
+// getSelectionOutput is the output schema for the get-selection tool.
+type getSelectionOutput struct {
+	X1      int    `json:"x1"`
+	Y1      int    `json:"y1"`
+	Z1      int    `json:"z1"`
+	X2      int    `json:"x2"`
+	Y2      int    `json:"y2"`
+	Z2      int    `json:"z2"`
+	Message string `json:"message"`
+}
+
 // scanAreaInput is the input schema for the scan-area tool.
 type scanAreaInput struct {
 	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
@@ -248,6 +277,18 @@ func (s *Server) registerTools() {
 		Name:        "detect-gamemode",
 		Description: "Get the bot's current game mode (survival, creative, adventure, spectator)",
 	}, requireConnection(s.conn, s.handleDetectGamemode))
+
+	// set-selection — requires connection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "set-selection",
+		Description: "Set a WorldEdit selection by specifying two corner positions. On WorldEdit/FAWE servers, sends //pos1 and //pos2 commands.",
+	}, requireConnection(s.conn, s.handleSetSelection))
+
+	// get-selection — requires connection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "get-selection",
+		Description: "Get the current WorldEdit selection coordinates, or report that no selection is set",
+	}, requireConnection(s.conn, s.handleGetSelection))
 
 	// detect-worldedit — requires connection
 	gomcp.AddTool(s.server, &gomcp.Tool{
@@ -406,6 +447,33 @@ func (s *Server) handleFindSigns(_ context.Context, _ *gomcp.CallToolRequest, in
 		Signs:   result,
 		Count:   len(result),
 		Message: fmt.Sprintf("found %d signs", len(result)),
+	}, nil
+}
+
+// handleSetSelection sets the WorldEdit selection corners.
+func (s *Server) handleSetSelection(_ context.Context, _ *gomcp.CallToolRequest, input setSelectionInput) (*gomcp.CallToolResult, setSelectionOutput, error) {
+	if err := s.conn.SetSelection(input.X1, input.Y1, input.Z1, input.X2, input.Y2, input.Z2); err != nil {
+		return toolError(fmt.Sprintf("failed to set selection: %v", err)), setSelectionOutput{}, nil
+	}
+	return nil, setSelectionOutput{
+		Message: fmt.Sprintf("selection set: (%d, %d, %d) to (%d, %d, %d)", input.X1, input.Y1, input.Z1, input.X2, input.Y2, input.Z2),
+	}, nil
+}
+
+// handleGetSelection returns the current selection or indicates none is set.
+func (s *Server) handleGetSelection(_ context.Context, _ *gomcp.CallToolRequest, _ getSelectionInput) (*gomcp.CallToolResult, getSelectionOutput, error) {
+	sel, ok := s.conn.GetSelection()
+	if !ok {
+		return toolError("no selection set"), getSelectionOutput{}, nil
+	}
+	return nil, getSelectionOutput{
+		X1:      sel.X1,
+		Y1:      sel.Y1,
+		Z1:      sel.Z1,
+		X2:      sel.X2,
+		Y2:      sel.Y2,
+		Z2:      sel.Z2,
+		Message: fmt.Sprintf("selection: %s", sel.String()),
 	}, nil
 }
 

@@ -119,6 +119,7 @@ type Connection struct {
 	authFn          AuthFunc
 	connectAndRun   func(ctx context.Context) error   // injectable for testing RunWithReconnect
 	backoffFn       func(attempt int) time.Duration    // injectable for testing backoff
+	sendCommandFn   func(command string) error         // injectable for testing command dispatch
 	shutdownTimeout time.Duration                      // injectable for testing Close drain
 
 	mu             sync.Mutex
@@ -128,6 +129,8 @@ type Connection struct {
 	doneCh         chan struct{}     // closed when HandleGame goroutine exits
 	tier           engine.Tier      // detected WorldEdit capability tier
 	chatListeners  []chatListener   // one-shot system chat listeners
+	selection      engine.Selection // current WorldEdit selection
+	hasSelection   bool             // true after SetSelection is called
 }
 
 // New creates a new Connection configured from the given config.
@@ -186,6 +189,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 			c.setState(StateDisconnected)
 			c.resetPosition()
 			c.resetTier()
+			c.resetSelection()
 			c.logger.Warn("disconnected by server", slog.String("reason", reason.String()))
 			return nil
 		},
@@ -885,9 +889,13 @@ func (c *Connection) unlistenChat(ch chan string) {
 // SendCommand("/version") sends //version (used for WorldEdit commands).
 func (c *Connection) SendCommand(command string) error {
 	c.mu.Lock()
+	fn := c.sendCommandFn
 	mgr := c.msgMgr
 	c.mu.Unlock()
 
+	if fn != nil {
+		return fn(command)
+	}
 	if mgr == nil {
 		return fmt.Errorf("not connected")
 	}
@@ -906,6 +914,42 @@ func (c *Connection) resetTier() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.tier = engine.TierUnknown
+}
+
+// SetSelection sets the WorldEdit selection to the given coordinates.
+// If the server has WorldEdit or FAWE, it also sends //pos1 and //pos2 commands.
+func (c *Connection) SetSelection(x1, y1, z1, x2, y2, z2 int) error {
+	c.mu.Lock()
+	c.selection = engine.Selection{X1: x1, Y1: y1, Z1: z1, X2: x2, Y2: y2, Z2: z2}
+	c.hasSelection = true
+	tier := c.tier
+	c.mu.Unlock()
+
+	if tier == engine.TierWorldEdit || tier == engine.TierFAWE {
+		if err := c.SendCommand(fmt.Sprintf("/pos1 %d,%d,%d", x1, y1, z1)); err != nil {
+			return fmt.Errorf("sending //pos1: %w", err)
+		}
+		if err := c.SendCommand(fmt.Sprintf("/pos2 %d,%d,%d", x2, y2, z2)); err != nil {
+			return fmt.Errorf("sending //pos2: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// GetSelection returns the current selection and whether one has been set.
+func (c *Connection) GetSelection() (engine.Selection, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.selection, c.hasSelection
+}
+
+// resetSelection clears the selection (called on disconnect).
+func (c *Connection) resetSelection() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.selection = engine.Selection{}
+	c.hasSelection = false
 }
 
 // parseTierFromChat checks if a chat message indicates a WorldEdit tier.

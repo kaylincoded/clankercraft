@@ -67,7 +67,7 @@ development_status:
   # Epic 3: Construction Engine & WorldEdit Integration
   epic-3: in-progress
   3-1-worldedit-capability-tier-detection: done
-  3-2-worldedit-selection-management: backlog
+  3-2-worldedit-selection-management: done
   3-3-wand-selection-sharing: backlog
   3-4-worldedit-region-operations: backlog
   3-5-worldedit-generation-commands: backlog

@@ -23,8 +23,11 @@ type mockBotState struct {
 	scanAreaFn   func(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockInfo, error)
 	readSignFn   func(x, y, z int) (connection.SignText, string, error)
 	findSignsFn  func(maxDist int) ([]connection.SignInfo, error)
-	gamemode     string
-	tier         engine.Tier
+	gamemode       string
+	tier           engine.Tier
+	setSelectionFn func(x1, y1, z1, x2, y2, z2 int) error
+	selection      engine.Selection
+	hasSelection   bool
 }
 
 func (m *mockBotState) IsConnected() bool { return m.connected }
@@ -72,6 +75,17 @@ func (m *mockBotState) GetGamemode() string {
 }
 func (m *mockBotState) GetTier() engine.Tier {
 	return m.tier
+}
+func (m *mockBotState) SetSelection(x1, y1, z1, x2, y2, z2 int) error {
+	if m.setSelectionFn != nil {
+		return m.setSelectionFn(x1, y1, z1, x2, y2, z2)
+	}
+	m.selection = engine.Selection{X1: x1, Y1: y1, Z1: z1, X2: x2, Y2: y2, Z2: z2}
+	m.hasSelection = true
+	return nil
+}
+func (m *mockBotState) GetSelection() (engine.Selection, bool) {
+	return m.selection, m.hasSelection
 }
 
 func TestRequireConnectionRejectsDisconnected(t *testing.T) {
