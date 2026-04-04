@@ -931,6 +931,32 @@ func (c *Connection) SendCommand(command string) error {
 	return mgr.SendCommand(command)
 }
 
+// RunCommand sends a vanilla command and waits for the server response.
+// The command should NOT include the leading / — e.g., RunCommand("setblock 0 64 0 stone")
+// sends /setblock 0 64 0 stone. Returns the first relevant chat response or times out.
+func (c *Connection) RunCommand(command string) (string, error) {
+	ch := c.listenChat()
+	defer c.unlistenChat(ch)
+
+	if err := c.SendCommand(command); err != nil {
+		return "", fmt.Errorf("sending /%s: %w", command, err)
+	}
+
+	dur := WECommandTimeout
+	if c.weTimeout > 0 {
+		dur = c.weTimeout
+	}
+	timeout := time.After(dur)
+	for {
+		select {
+		case msg := <-ch:
+			return msg, nil
+		case <-timeout:
+			return "", fmt.Errorf("no response from server within %s", dur)
+		}
+	}
+}
+
 // RunWECommand sends a WorldEdit command and waits for the server response.
 // The command should NOT include the leading // — e.g., RunWECommand("set stone")
 // sends //set stone. Returns the first relevant chat response or times out.

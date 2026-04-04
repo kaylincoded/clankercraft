@@ -2099,6 +2099,373 @@ func TestWERedoRejectsDisconnected(t *testing.T) {
 	}
 }
 
+// --- Story 3-9: Vanilla Fallback Construction ---
+
+func vanillaMock() *mockBotState {
+	return &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		runCommandFn: func(command string) (string, error) {
+			return "Command executed.", nil
+		},
+	}
+}
+
+func vanillaCaptureMock() (*mockBotState, *string) {
+	var capturedCmd string
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		runCommandFn: func(command string) (string, error) {
+			capturedCmd = command
+			return "Command executed.", nil
+		},
+	}
+	return mock, &capturedCmd
+}
+
+// decomposeFill unit tests
+
+func TestDecomposeFillSmallRegion(t *testing.T) {
+	regions := decomposeFill(0, 0, 0, 9, 9, 9)
+	if len(regions) != 1 {
+		t.Fatalf("expected 1 region, got %d", len(regions))
+	}
+	r := regions[0]
+	if r != [6]int{0, 0, 0, 9, 9, 9} {
+		t.Errorf("region = %v, want [0 0 0 9 9 9]", r)
+	}
+}
+
+func TestDecomposeFillExactLimit(t *testing.T) {
+	// 32x32x32 = 32768 exactly
+	regions := decomposeFill(0, 0, 0, 31, 31, 31)
+	if len(regions) != 1 {
+		t.Fatalf("expected 1 region for exact limit, got %d", len(regions))
+	}
+}
+
+func TestDecomposeFillSplitsLargeRegion(t *testing.T) {
+	// 33x32x32 = 33792 > 32768, must split
+	regions := decomposeFill(0, 0, 0, 32, 31, 31)
+	if len(regions) < 2 {
+		t.Fatalf("expected >= 2 regions for oversized volume, got %d", len(regions))
+	}
+	// Verify all sub-regions fit within limit
+	for i, r := range regions {
+		dx := r[3] - r[0] + 1
+		dy := r[4] - r[1] + 1
+		dz := r[5] - r[2] + 1
+		vol := dx * dy * dz
+		if vol > maxFillVolume {
+			t.Errorf("region %d has volume %d > %d", i, vol, maxFillVolume)
+		}
+	}
+}
+
+func TestDecomposeFillNormalizesCoordinates(t *testing.T) {
+	// Pass reversed coordinates — should normalize
+	regions := decomposeFill(9, 9, 9, 0, 0, 0)
+	if len(regions) != 1 {
+		t.Fatalf("expected 1 region, got %d", len(regions))
+	}
+	r := regions[0]
+	if r != [6]int{0, 0, 0, 9, 9, 9} {
+		t.Errorf("region = %v, want [0 0 0 9 9 9]", r)
+	}
+}
+
+func TestDecomposeFillCoversEntireVolume(t *testing.T) {
+	// 64x64x64 = 262144 blocks, should decompose into multiple regions
+	regions := decomposeFill(0, 0, 0, 63, 63, 63)
+	totalVolume := 0
+	for _, r := range regions {
+		dx := r[3] - r[0] + 1
+		dy := r[4] - r[1] + 1
+		dz := r[5] - r[2] + 1
+		totalVolume += dx * dy * dz
+	}
+	if totalVolume != 64*64*64 {
+		t.Errorf("total volume = %d, want %d", totalVolume, 64*64*64)
+	}
+}
+
+// setblock tool tests
+
+func TestSetblockSendsCorrectCommand(t *testing.T) {
+	mock, cmd := vanillaCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "setblock",
+		Arguments: map[string]any{"x": 10, "y": 64, "z": -5, "block": "minecraft:stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(setblock): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("setblock returned error: %v", result.Content)
+	}
+	if *cmd != "setblock 10 64 -5 minecraft:stone" {
+		t.Errorf("command = %q, want %q", *cmd, "setblock 10 64 -5 minecraft:stone")
+	}
+}
+
+func TestSetblockRejectsInvalidBlock(t *testing.T) {
+	session := testSession(t, vanillaMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "setblock",
+		Arguments: map[string]any{"x": 0, "y": 64, "z": 0, "block": "stone; /op hacker"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(setblock): %v", err)
+	}
+	if !result.IsError {
+		t.Error("setblock should reject invalid block pattern")
+	}
+}
+
+func TestSetblockRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "setblock",
+		Arguments: map[string]any{"x": 0, "y": 64, "z": 0, "block": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(setblock): %v", err)
+	}
+	if !result.IsError {
+		t.Error("setblock should return error when disconnected")
+	}
+}
+
+func TestSetblockCommandError(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		runCommandFn: func(command string) (string, error) {
+			return "", fmt.Errorf("server timeout")
+		},
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "setblock",
+		Arguments: map[string]any{"x": 0, "y": 64, "z": 0, "block": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(setblock): %v", err)
+	}
+	if !result.IsError {
+		t.Error("setblock should return error on command failure")
+	}
+}
+
+// fill tool tests
+
+func TestFillSmallRegion(t *testing.T) {
+	callCount := 0
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		runCommandFn: func(command string) (string, error) {
+			callCount++
+			return "100 block(s) have been filled.", nil
+		},
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "fill",
+		Arguments: map[string]any{"x1": 0, "y1": 64, "z1": 0, "x2": 9, "y2": 73, "z2": 9, "block": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(fill): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("fill returned error: %v", result.Content)
+	}
+	if callCount != 1 {
+		t.Errorf("expected 1 RunCommand call, got %d", callCount)
+	}
+}
+
+func TestFillLargeRegionDecomposes(t *testing.T) {
+	callCount := 0
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		runCommandFn: func(command string) (string, error) {
+			callCount++
+			return "Filled blocks.", nil
+		},
+	}
+	session := testSession(t, mock)
+
+	// 64x64x64 = 262144, requires decomposition
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "fill",
+		Arguments: map[string]any{"x1": 0, "y1": 0, "z1": 0, "x2": 63, "y2": 63, "z2": 63, "block": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(fill): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("fill returned error: %v", result.Content)
+	}
+	if callCount < 2 {
+		t.Errorf("expected multiple RunCommand calls for large region, got %d", callCount)
+	}
+}
+
+func TestFillRejectsInvalidBlock(t *testing.T) {
+	session := testSession(t, vanillaMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "fill",
+		Arguments: map[string]any{"x1": 0, "y1": 64, "z1": 0, "x2": 5, "y2": 69, "z2": 5, "block": "bad block!@#"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(fill): %v", err)
+	}
+	if !result.IsError {
+		t.Error("fill should reject invalid block pattern")
+	}
+}
+
+func TestFillRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "fill",
+		Arguments: map[string]any{"x1": 0, "y1": 64, "z1": 0, "x2": 5, "y2": 69, "z2": 5, "block": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(fill): %v", err)
+	}
+	if !result.IsError {
+		t.Error("fill should return error when disconnected")
+	}
+}
+
+func TestFillCommandError(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		runCommandFn: func(command string) (string, error) {
+			return "", fmt.Errorf("server error")
+		},
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "fill",
+		Arguments: map[string]any{"x1": 0, "y1": 64, "z1": 0, "x2": 5, "y2": 69, "z2": 5, "block": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(fill): %v", err)
+	}
+	if !result.IsError {
+		t.Error("fill should return error on command failure")
+	}
+}
+
+// clone tool tests
+
+func TestCloneSendsCorrectCommand(t *testing.T) {
+	mock, cmd := vanillaCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "clone",
+		Arguments: map[string]any{
+			"x1": 0, "y1": 64, "z1": 0,
+			"x2": 10, "y2": 74, "z2": 10,
+			"dx": 100, "dy": 64, "dz": 100,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(clone): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("clone returned error: %v", result.Content)
+	}
+	if *cmd != "clone 0 64 0 10 74 10 100 64 100" {
+		t.Errorf("command = %q, want %q", *cmd, "clone 0 64 0 10 74 10 100 64 100")
+	}
+}
+
+func TestCloneRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "clone",
+		Arguments: map[string]any{
+			"x1": 0, "y1": 64, "z1": 0,
+			"x2": 10, "y2": 74, "z2": 10,
+			"dx": 100, "dy": 64, "dz": 100,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(clone): %v", err)
+	}
+	if !result.IsError {
+		t.Error("clone should return error when disconnected")
+	}
+}
+
+func TestCloneCommandError(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		runCommandFn: func(command string) (string, error) {
+			return "", fmt.Errorf("server error")
+		},
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "clone",
+		Arguments: map[string]any{
+			"x1": 0, "y1": 64, "z1": 0,
+			"x2": 10, "y2": 74, "z2": 10,
+			"dx": 100, "dy": 64, "dz": 100,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(clone): %v", err)
+	}
+	if !result.IsError {
+		t.Error("clone should return error on command failure")
+	}
+}
+
+// Vanilla tools work on WorldEdit tier too (requireConnection only checks connection)
+
+func TestSetblockWorksOnWorldEditTier(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		runCommandFn: func(command string) (string, error) {
+			return "Changed the block.", nil
+		},
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "setblock",
+		Arguments: map[string]any{"x": 0, "y": 64, "z": 0, "block": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(setblock): %v", err)
+	}
+	if result.IsError {
+		t.Error("setblock should work on WorldEdit tier (requireConnection only)")
+	}
+}
+
 func TestServerRunCancellation(t *testing.T) {
 	srv := New("test-version", testLogger(), &mockBotState{})
 

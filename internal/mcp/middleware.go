@@ -31,6 +31,7 @@ type BotState interface {
 	HasPos1() bool
 	HasPos2() bool
 	RunWECommand(command string) (string, error)
+	RunCommand(command string) (string, error)
 }
 
 // requireWETier wraps a handler with connection and WorldEdit tier checks (no selection required).

@@ -270,6 +270,56 @@ type weUndoInput struct{}
 // weRedoInput is the input schema for the we-redo tool (no arguments).
 type weRedoInput struct{}
 
+// setblockInput is the input schema for the setblock tool.
+type setblockInput struct {
+	X     int    `json:"x" jsonschema:"X coordinate"`
+	Y     int    `json:"y" jsonschema:"Y coordinate"`
+	Z     int    `json:"z" jsonschema:"Z coordinate"`
+	Block string `json:"block" jsonschema:"block type, e.g. minecraft:stone"`
+}
+
+// setblockOutput is the output schema for the setblock tool.
+type setblockOutput struct {
+	Response string `json:"response"`
+	Message  string `json:"message"`
+}
+
+// fillInput is the input schema for the fill tool.
+type fillInput struct {
+	X1    int    `json:"x1" jsonschema:"first corner X coordinate"`
+	Y1    int    `json:"y1" jsonschema:"first corner Y coordinate"`
+	Z1    int    `json:"z1" jsonschema:"first corner Z coordinate"`
+	X2    int    `json:"x2" jsonschema:"second corner X coordinate"`
+	Y2    int    `json:"y2" jsonschema:"second corner Y coordinate"`
+	Z2    int    `json:"z2" jsonschema:"second corner Z coordinate"`
+	Block string `json:"block" jsonschema:"block type, e.g. minecraft:stone"`
+}
+
+// fillOutput is the output schema for the fill tool.
+type fillOutput struct {
+	Commands int    `json:"commands"`
+	Message  string `json:"message"`
+}
+
+// cloneInput is the input schema for the clone tool.
+type cloneInput struct {
+	X1 int `json:"x1" jsonschema:"source first corner X"`
+	Y1 int `json:"y1" jsonschema:"source first corner Y"`
+	Z1 int `json:"z1" jsonschema:"source first corner Z"`
+	X2 int `json:"x2" jsonschema:"source second corner X"`
+	Y2 int `json:"y2" jsonschema:"source second corner Y"`
+	Z2 int `json:"z2" jsonschema:"source second corner Z"`
+	DX int `json:"dx" jsonschema:"destination X coordinate"`
+	DY int `json:"dy" jsonschema:"destination Y coordinate"`
+	DZ int `json:"dz" jsonschema:"destination Z coordinate"`
+}
+
+// cloneOutput is the output schema for the clone tool.
+type cloneOutput struct {
+	Response string `json:"response"`
+	Message  string `json:"message"`
+}
+
 // scanAreaInput is the input schema for the scan-area tool.
 type scanAreaInput struct {
 	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
@@ -503,6 +553,24 @@ func (s *Server) registerTools() {
 		Name:        "we-redo",
 		Description: "Redo the last undone WorldEdit operation using //redo",
 	}, requireWETier(s.conn, s.handleWERedo))
+
+	// setblock — requires connection (works on any tier)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "setblock",
+		Description: "Place a single block at the specified coordinates using /setblock",
+	}, requireConnection(s.conn, s.handleSetblock))
+
+	// fill — requires connection (works on any tier, auto-decomposes large regions)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "fill",
+		Description: "Fill a region with a block type using /fill (auto-decomposes regions larger than 32,768 blocks)",
+	}, requireConnection(s.conn, s.handleFill))
+
+	// clone — requires connection (works on any tier)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "clone",
+		Description: "Clone a region to a destination using /clone (overlapping source and destination may produce undefined results)",
+	}, requireConnection(s.conn, s.handleClone))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -979,6 +1047,109 @@ func (s *Server) handleWERedo(_ context.Context, _ *gomcp.CallToolRequest, _ weR
 		return toolError(fmt.Sprintf("//redo failed: %v", err)), weCommandOutput{}, nil
 	}
 	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//redo: %s", resp)}, nil
+}
+
+// maxFillVolume is the Minecraft vanilla /fill block limit per command.
+const maxFillVolume = 32768
+
+// decomposeFill splits a region into sub-regions that each fit within maxFillVolume.
+// Returns a slice of [6]int{x1,y1,z1,x2,y2,z2} regions.
+func decomposeFill(x1, y1, z1, x2, y2, z2 int) [][6]int {
+	// Normalize coordinates so min <= max
+	if x1 > x2 {
+		x1, x2 = x2, x1
+	}
+	if y1 > y2 {
+		y1, y2 = y2, y1
+	}
+	if z1 > z2 {
+		z1, z2 = z2, z1
+	}
+
+	dx := x2 - x1 + 1
+	dy := y2 - y1 + 1
+	dz := z2 - z1 + 1
+	volume := dx * dy * dz
+
+	if volume <= maxFillVolume {
+		return [][6]int{{x1, y1, z1, x2, y2, z2}}
+	}
+
+	// Split along the longest axis
+	if dx >= dy && dx >= dz {
+		mid := x1 + dx/2 - 1
+		left := decomposeFill(x1, y1, z1, mid, y2, z2)
+		right := decomposeFill(mid+1, y1, z1, x2, y2, z2)
+		return append(left, right...)
+	} else if dy >= dz {
+		mid := y1 + dy/2 - 1
+		left := decomposeFill(x1, y1, z1, x2, mid, z2)
+		right := decomposeFill(x1, mid+1, z1, x2, y2, z2)
+		return append(left, right...)
+	} else {
+		mid := z1 + dz/2 - 1
+		left := decomposeFill(x1, y1, z1, x2, y2, mid)
+		right := decomposeFill(x1, y1, mid+1, x2, y2, z2)
+		return append(left, right...)
+	}
+}
+
+// handleSetblock places a single block.
+func (s *Server) handleSetblock(_ context.Context, _ *gomcp.CallToolRequest, input setblockInput) (*gomcp.CallToolResult, setblockOutput, error) {
+	if err := validatePattern(input.Block); err != nil {
+		return toolError(err.Error()), setblockOutput{}, nil
+	}
+	cmd := fmt.Sprintf("setblock %d %d %d %s", input.X, input.Y, input.Z, input.Block)
+	resp, err := s.conn.RunCommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("/setblock failed: %v", err)), setblockOutput{}, nil
+	}
+	return nil, setblockOutput{
+		Response: resp,
+		Message:  fmt.Sprintf("/setblock %d %d %d %s: %s", input.X, input.Y, input.Z, input.Block, resp),
+	}, nil
+}
+
+// handleFill fills a region, auto-decomposing large regions.
+func (s *Server) handleFill(_ context.Context, _ *gomcp.CallToolRequest, input fillInput) (*gomcp.CallToolResult, fillOutput, error) {
+	if err := validatePattern(input.Block); err != nil {
+		return toolError(err.Error()), fillOutput{}, nil
+	}
+
+	regions := decomposeFill(input.X1, input.Y1, input.Z1, input.X2, input.Y2, input.Z2)
+	var lastResp string
+	for _, r := range regions {
+		cmd := fmt.Sprintf("fill %d %d %d %d %d %d %s", r[0], r[1], r[2], r[3], r[4], r[5], input.Block)
+		resp, err := s.conn.RunCommand(cmd)
+		if err != nil {
+			return toolError(fmt.Sprintf("/fill failed: %v", err)), fillOutput{}, nil
+		}
+		lastResp = resp
+	}
+
+	msg := fmt.Sprintf("/fill: %s", lastResp)
+	if len(regions) > 1 {
+		msg = fmt.Sprintf("/fill: decomposed into %d commands, last response: %s", len(regions), lastResp)
+	}
+	return nil, fillOutput{
+		Commands: len(regions),
+		Message:  msg,
+	}, nil
+}
+
+// handleClone clones a region to a destination.
+func (s *Server) handleClone(_ context.Context, _ *gomcp.CallToolRequest, input cloneInput) (*gomcp.CallToolResult, cloneOutput, error) {
+	cmd := fmt.Sprintf("clone %d %d %d %d %d %d %d %d %d",
+		input.X1, input.Y1, input.Z1, input.X2, input.Y2, input.Z2,
+		input.DX, input.DY, input.DZ)
+	resp, err := s.conn.RunCommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("/clone failed: %v", err)), cloneOutput{}, nil
+	}
+	return nil, cloneOutput{
+		Response: resp,
+		Message:  fmt.Sprintf("/clone: %s", resp),
+	}, nil
 }
 
 // handleDetectGamemode returns the bot's current game mode.

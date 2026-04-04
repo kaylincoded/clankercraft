@@ -30,6 +30,7 @@ type mockBotState struct {
 	hasPos1         bool
 	hasPos2         bool
 	runWECommandFn  func(command string) (string, error)
+	runCommandFn    func(command string) (string, error)
 }
 
 func (m *mockBotState) IsConnected() bool { return m.connected }
@@ -97,6 +98,12 @@ func (m *mockBotState) RunWECommand(command string) (string, error) {
 		return m.runWECommandFn(command)
 	}
 	return "0 block(s) have been changed.", nil
+}
+func (m *mockBotState) RunCommand(command string) (string, error) {
+	if m.runCommandFn != nil {
+		return m.runCommandFn(command)
+	}
+	return "Command executed.", nil
 }
 
 func TestRequireWETierAllowsWithoutSelection(t *testing.T) {
