@@ -14,6 +14,7 @@ import (
 	"github.com/kaylincoded/clankercraft/internal/connection"
 	cclog "github.com/kaylincoded/clankercraft/internal/log"
 	"github.com/kaylincoded/clankercraft/internal/mcp"
+	"github.com/kaylincoded/clankercraft/internal/rcon"
 	"github.com/spf13/cobra"
 )
 
@@ -58,6 +59,10 @@ func run(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Connect RCON (optional — logs warning and continues on failure).
+	rconClient := rcon.New(cfg, logger)
+	rconClient.Connect(ctx)
+
 	// Start MC connection and MCP server concurrently.
 	// errgroup cancels gctx on first error, so a broken MCP transport
 	// tears down the MC connection (and vice versa).
@@ -73,6 +78,7 @@ func run(cmd *cobra.Command, args []string) error {
 	// Restore default signal handling so second Ctrl+C force-quits
 	stop()
 	logger.Info("shutting down, press Ctrl+C again to force quit")
+	rconClient.Close()
 	conn.Close()
 
 	if err != nil && err != context.Canceled {
