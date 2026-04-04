@@ -54,7 +54,7 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: MCP Stdio Interface & Observation Tools
-  epic-2: in-progress
+  epic-2: done
   2-1-mcp-stdio-transport: done
   2-2-mcp-tool-registration-framework: done
   2-3-tool-listing-discovery: done
@@ -62,7 +62,7 @@ development_status:
   2-5-block-query-tools: done
   2-6-area-scanning-tool: done
   2-7-sign-game-state-tools: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   # Epic 3: Construction Engine & WorldEdit Integration
   epic-3: backlog
