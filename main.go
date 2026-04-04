@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/kaylincoded/clankercraft/internal/config"
+	"github.com/kaylincoded/clankercraft/internal/connection"
 	cclog "github.com/kaylincoded/clankercraft/internal/log"
 	"github.com/spf13/cobra"
 )
@@ -53,9 +54,20 @@ func run(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Wait for shutdown signal
-	<-ctx.Done()
-	logger.Info("shutting down")
+	// Connect to Minecraft server
+	conn := connection.New(cfg, logger)
+	if err := conn.Connect(ctx); err != nil {
+		return fmt.Errorf("minecraft connection: %w", err)
+	}
 
+	// Run game loop — blocks until disconnect or signal
+	gameErr := conn.HandleGame(ctx)
+
+	logger.Info("shutting down")
+	conn.Close()
+
+	if gameErr != nil && gameErr != context.Canceled {
+		return gameErr
+	}
 	return nil
 }
