@@ -63,7 +63,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Connect RCON (optional — logs warning and continues on failure).
 	rconClient := rcon.New(cfg, logger)
-	rconClient.Connect(ctx)
+	_ = rconClient.Connect(ctx)
 
 	// Initialize LLM provider (optional — nil means no LLM features).
 	var llmProvider llm.Provider
@@ -112,8 +112,8 @@ func run(cmd *cobra.Command, args []string) error {
 	// Restore default signal handling so second Ctrl+C force-quits
 	stop()
 	logger.Info("shutting down, press Ctrl+C again to force quit")
-	rconClient.Close()
-	conn.Close()
+	_ = rconClient.Close()
+	_ = conn.Close()
 
 	if err != nil && err != context.Canceled {
 		return err

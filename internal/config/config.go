@@ -44,13 +44,13 @@ func BindFlags(cmd *cobra.Command) {
 	f.String("rcon-password", "", "RCON password")
 	f.String("config", "", "Config file path (default ~/.config/clankercraft/config.yaml)")
 
-	viper.BindPFlag("host", f.Lookup("host"))
-	viper.BindPFlag("port", f.Lookup("port"))
-	viper.BindPFlag("username", f.Lookup("username"))
-	viper.BindPFlag("log_level", f.Lookup("log-level"))
-	viper.BindPFlag("offline", f.Lookup("offline"))
-	viper.BindPFlag("rcon_port", f.Lookup("rcon-port"))
-	viper.BindPFlag("rcon_password", f.Lookup("rcon-password"))
+	_ = viper.BindPFlag("host", f.Lookup("host"))
+	_ = viper.BindPFlag("port", f.Lookup("port"))
+	_ = viper.BindPFlag("username", f.Lookup("username"))
+	_ = viper.BindPFlag("log_level", f.Lookup("log-level"))
+	_ = viper.BindPFlag("offline", f.Lookup("offline"))
+	_ = viper.BindPFlag("rcon_port", f.Lookup("rcon-port"))
+	_ = viper.BindPFlag("rcon_password", f.Lookup("rcon-password"))
 }
 
 // Load resolves configuration from CLI flags, env vars, config file, and defaults.

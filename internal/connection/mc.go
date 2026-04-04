@@ -392,7 +392,7 @@ func (c *Connection) Close() error {
 	c.mu.Unlock()
 
 	if client != nil && client.Conn != nil {
-		client.Conn.Close()
+		_ = client.Conn.Close()
 	}
 
 	// Wait for HandleGame goroutine to finish
