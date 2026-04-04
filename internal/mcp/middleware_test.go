@@ -1,0 +1,297 @@
+package mcp
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/kaylincoded/clankercraft/internal/connection"
+	"github.com/kaylincoded/clankercraft/internal/engine"
+)
+
+// mockBotState satisfies BotState for testing.
+type mockBotState struct {
+	connected    bool
+	pos          connection.Position
+	hasPos       bool
+	lastYaw      float32
+	lastPitch    float32
+	sendRotErr   error
+	blockAtFn    func(x, y, z int) (string, error)
+	findBlockFn  func(blockType string, maxDist int) (int, int, int, bool, error)
+	scanAreaFn   func(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockInfo, error)
+	readSignFn   func(x, y, z int) (connection.SignText, string, error)
+	findSignsFn  func(maxDist int) ([]connection.SignInfo, error)
+	gamemode       string
+	tier           engine.Tier
+	setSelectionFn  func(x1, y1, z1, x2, y2, z2 int) error
+	selection       engine.Selection
+	hasPos1         bool
+	hasPos2         bool
+	runWECommandFn      func(command string) (string, error)
+	runCommandFn        func(command string) (string, error)
+	runBulkWECommandFn  func(command string) (string, error)
+	runBulkCommandFn    func(command string) (string, error)
+}
+
+func (m *mockBotState) IsConnected() bool { return m.connected }
+func (m *mockBotState) GetPosition() (connection.Position, bool) { return m.pos, m.hasPos }
+func (m *mockBotState) SendRotation(yaw, pitch float32) error {
+	m.lastYaw = yaw
+	m.lastPitch = pitch
+	return m.sendRotErr
+}
+func (m *mockBotState) BlockAt(x, y, z int) (string, error) {
+	if m.blockAtFn != nil {
+		return m.blockAtFn(x, y, z)
+	}
+	return "", fmt.Errorf("not implemented")
+}
+func (m *mockBotState) FindBlock(blockType string, maxDist int) (int, int, int, bool, error) {
+	if m.findBlockFn != nil {
+		return m.findBlockFn(blockType, maxDist)
+	}
+	return 0, 0, 0, false, fmt.Errorf("not implemented")
+}
+func (m *mockBotState) ScanArea(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockInfo, error) {
+	if m.scanAreaFn != nil {
+		return m.scanAreaFn(x1, y1, z1, x2, y2, z2)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockBotState) ReadSign(x, y, z int) (connection.SignText, string, error) {
+	if m.readSignFn != nil {
+		return m.readSignFn(x, y, z)
+	}
+	return connection.SignText{}, "", fmt.Errorf("not implemented")
+}
+func (m *mockBotState) FindSigns(maxDist int) ([]connection.SignInfo, error) {
+	if m.findSignsFn != nil {
+		return m.findSignsFn(maxDist)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockBotState) GetGamemode() string {
+	if m.gamemode != "" {
+		return m.gamemode
+	}
+	return "survival"
+}
+func (m *mockBotState) GetTier() engine.Tier {
+	return m.tier
+}
+func (m *mockBotState) SetSelection(x1, y1, z1, x2, y2, z2 int) error {
+	if m.setSelectionFn != nil {
+		return m.setSelectionFn(x1, y1, z1, x2, y2, z2)
+	}
+	m.selection = engine.Selection{X1: x1, Y1: y1, Z1: z1, X2: x2, Y2: y2, Z2: z2}
+	m.hasPos1 = true
+	m.hasPos2 = true
+	return nil
+}
+func (m *mockBotState) GetSelection() (engine.Selection, bool) {
+	return m.selection, m.hasPos1 && m.hasPos2
+}
+func (m *mockBotState) HasPos1() bool { return m.hasPos1 }
+func (m *mockBotState) HasPos2() bool { return m.hasPos2 }
+func (m *mockBotState) RunWECommand(command string) (string, error) {
+	if m.runWECommandFn != nil {
+		return m.runWECommandFn(command)
+	}
+	return "0 block(s) have been changed.", nil
+}
+func (m *mockBotState) RunCommand(command string) (string, error) {
+	if m.runCommandFn != nil {
+		return m.runCommandFn(command)
+	}
+	return "Command executed.", nil
+}
+func (m *mockBotState) RunBulkWECommand(command string) (string, error) {
+	if m.runBulkWECommandFn != nil {
+		return m.runBulkWECommandFn(command)
+	}
+	// Default: delegate to RunWECommand (same as real impl when no RCON)
+	return m.RunWECommand(command)
+}
+func (m *mockBotState) RunBulkCommand(command string) (string, error) {
+	if m.runBulkCommandFn != nil {
+		return m.runBulkCommandFn(command)
+	}
+	return m.RunCommand(command)
+}
+
+func (m *mockBotState) OnWhisper(handler func(sender, message string)) {}
+func (m *mockBotState) SendWhisper(player, message string) error        { return nil }
+
+func TestRequireWETierAllowsWithoutSelection(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+	}
+	called := false
+	handler := requireWETier(mock, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		called = true
+		return nil, pingOutput{Status: "ok"}, nil
+	})
+
+	_, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("handler was not called")
+	}
+}
+
+func TestRequireWETierRejectsVanilla(t *testing.T) {
+	mock := &mockBotState{connected: true, tier: engine.TierVanilla}
+	handler := requireWETier(mock, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		t.Fatal("handler should not be called")
+		return nil, pingOutput{}, nil
+	})
+
+	result, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true for vanilla tier")
+	}
+}
+
+func TestRequireWorldEditAllowsReady(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection: engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+	}
+	called := false
+	handler := requireWorldEdit(mock, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		called = true
+		return nil, pingOutput{Status: "ok"}, nil
+	})
+
+	_, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("handler was not called")
+	}
+}
+
+func TestRequireWorldEditRejectsVanilla(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		hasPos1:   true,
+		hasPos2:   true,
+	}
+	handler := requireWorldEdit(mock, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		t.Fatal("handler should not be called")
+		return nil, pingOutput{}, nil
+	})
+
+	result, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true for vanilla tier")
+	}
+}
+
+func TestRequireWorldEditRejectsNoSelection(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+	}
+	handler := requireWorldEdit(mock, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		t.Fatal("handler should not be called")
+		return nil, pingOutput{}, nil
+	})
+
+	result, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true for no selection")
+	}
+}
+
+func TestRequireConnectionRejectsDisconnected(t *testing.T) {
+	checker := &mockBotState{connected: false}
+	handler := requireConnection(checker, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		t.Fatal("handler should not be called when disconnected")
+		return nil, pingOutput{}, nil
+	})
+
+	result, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected error result, got nil")
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true")
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected error content")
+	}
+	text, ok := result.Content[0].(*gomcp.TextContent)
+	if !ok {
+		t.Fatalf("content type = %T, want *TextContent", result.Content[0])
+	}
+	if text.Text != "bot is not connected to a Minecraft server" {
+		t.Errorf("error text = %q, want connection error message", text.Text)
+	}
+}
+
+func TestRequireConnectionAllowsConnected(t *testing.T) {
+	checker := &mockBotState{connected: true}
+	called := false
+	handler := requireConnection(checker, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		called = true
+		return nil, pingOutput{Status: "ok"}, nil
+	})
+
+	result, out, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("handler was not called")
+	}
+	if result != nil {
+		t.Errorf("expected nil result (auto-populated), got %+v", result)
+	}
+	if out.Status != "ok" {
+		t.Errorf("output status = %q, want %q", out.Status, "ok")
+	}
+}
+
+func TestToolErrorFormat(t *testing.T) {
+	result := toolError("something went wrong")
+	if !result.IsError {
+		t.Error("expected IsError=true")
+	}
+	if len(result.Content) != 1 {
+		t.Fatalf("expected 1 content item, got %d", len(result.Content))
+	}
+	text, ok := result.Content[0].(*gomcp.TextContent)
+	if !ok {
+		t.Fatalf("content type = %T, want *TextContent", result.Content[0])
+	}
+	if text.Text != "something went wrong" {
+		t.Errorf("text = %q, want %q", text.Text, "something went wrong")
+	}
+}
