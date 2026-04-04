@@ -2466,6 +2466,138 @@ func TestSetblockWorksOnWorldEditTier(t *testing.T) {
 	}
 }
 
+// --- Story 4-2: Command Routing (Chat vs RCON) ---
+
+func TestBulkWEToolUsesRunBulkWECommand(t *testing.T) {
+	var bulkCmd string
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection:  engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+		runBulkWECommandFn: func(command string) (string, error) {
+			bulkCmd = command
+			return "100 block(s) have been changed.", nil
+		},
+		runWECommandFn: func(command string) (string, error) {
+			t.Errorf("RunWECommand should not be called for bulk tool, got %q", command)
+			return "", nil
+		},
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-set",
+		Arguments: map[string]any{"pattern": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-set): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-set returned error: %v", result.Content)
+	}
+	if bulkCmd != "set stone" {
+		t.Errorf("bulk command = %q, want %q", bulkCmd, "set stone")
+	}
+}
+
+func TestPlayerSessionToolUsesRunWECommand(t *testing.T) {
+	var chatCmd string
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+		runWECommandFn: func(command string) (string, error) {
+			chatCmd = command
+			return "Undo successful.", nil
+		},
+		runBulkWECommandFn: func(command string) (string, error) {
+			t.Errorf("RunBulkWECommand should not be called for player-session tool, got %q", command)
+			return "", nil
+		},
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-undo",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-undo): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-undo returned error: %v", result.Content)
+	}
+	if chatCmd != "undo" {
+		t.Errorf("chat command = %q, want %q", chatCmd, "undo")
+	}
+}
+
+func TestVanillaToolUsesRunBulkCommand(t *testing.T) {
+	var bulkCmd string
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		runBulkCommandFn: func(command string) (string, error) {
+			bulkCmd = command
+			return "Block placed.", nil
+		},
+		runCommandFn: func(command string) (string, error) {
+			t.Errorf("RunCommand should not be called for vanilla tool, got %q", command)
+			return "", nil
+		},
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "setblock",
+		Arguments: map[string]any{"x": 0, "y": 64, "z": 0, "block": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(setblock): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("setblock returned error: %v", result.Content)
+	}
+	if bulkCmd != "setblock 0 64 0 stone" {
+		t.Errorf("bulk command = %q, want %q", bulkCmd, "setblock 0 64 0 stone")
+	}
+}
+
+func TestCopyUsesRunWECommandNotBulk(t *testing.T) {
+	var chatCmd string
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection:  engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+		runWECommandFn: func(command string) (string, error) {
+			chatCmd = command
+			return "Copied.", nil
+		},
+		runBulkWECommandFn: func(command string) (string, error) {
+			t.Errorf("RunBulkWECommand should not be called for copy, got %q", command)
+			return "", nil
+		},
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-copy",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-copy): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-copy returned error: %v", result.Content)
+	}
+	if chatCmd != "copy" {
+		t.Errorf("chat command = %q, want %q", chatCmd, "copy")
+	}
+}
+
 func TestServerRunCancellation(t *testing.T) {
 	srv := New("test-version", testLogger(), &mockBotState{})
 

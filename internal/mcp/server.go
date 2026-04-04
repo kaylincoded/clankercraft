@@ -801,7 +801,7 @@ func (s *Server) handleWESet(_ context.Context, _ *gomcp.CallToolRequest, input 
 	if err := validatePattern(input.Pattern); err != nil {
 		return toolError(err.Error()), weCommandOutput{}, nil
 	}
-	resp, err := s.conn.RunWECommand("set " + input.Pattern)
+	resp, err := s.conn.RunBulkWECommand("set " + input.Pattern)
 	if err != nil {
 		return toolError(fmt.Sprintf("//set failed: %v", err)), weCommandOutput{}, nil
 	}
@@ -816,7 +816,7 @@ func (s *Server) handleWEReplace(_ context.Context, _ *gomcp.CallToolRequest, in
 	if err := validatePattern(input.To); err != nil {
 		return toolError(fmt.Sprintf("invalid 'to' pattern: %v", err)), weCommandOutput{}, nil
 	}
-	resp, err := s.conn.RunWECommand("replace " + input.From + " " + input.To)
+	resp, err := s.conn.RunBulkWECommand("replace " + input.From + " " + input.To)
 	if err != nil {
 		return toolError(fmt.Sprintf("//replace failed: %v", err)), weCommandOutput{}, nil
 	}
@@ -828,7 +828,7 @@ func (s *Server) handleWEWalls(_ context.Context, _ *gomcp.CallToolRequest, inpu
 	if err := validatePattern(input.Pattern); err != nil {
 		return toolError(err.Error()), weCommandOutput{}, nil
 	}
-	resp, err := s.conn.RunWECommand("walls " + input.Pattern)
+	resp, err := s.conn.RunBulkWECommand("walls " + input.Pattern)
 	if err != nil {
 		return toolError(fmt.Sprintf("//walls failed: %v", err)), weCommandOutput{}, nil
 	}
@@ -840,7 +840,7 @@ func (s *Server) handleWEFaces(_ context.Context, _ *gomcp.CallToolRequest, inpu
 	if err := validatePattern(input.Pattern); err != nil {
 		return toolError(err.Error()), weCommandOutput{}, nil
 	}
-	resp, err := s.conn.RunWECommand("faces " + input.Pattern)
+	resp, err := s.conn.RunBulkWECommand("faces " + input.Pattern)
 	if err != nil {
 		return toolError(fmt.Sprintf("//faces failed: %v", err)), weCommandOutput{}, nil
 	}
@@ -856,7 +856,7 @@ func (s *Server) handleWEHollow(_ context.Context, _ *gomcp.CallToolRequest, inp
 		}
 		cmd += " " + input.Pattern
 	}
-	resp, err := s.conn.RunWECommand(cmd)
+	resp, err := s.conn.RunBulkWECommand(cmd)
 	if err != nil {
 		return toolError(fmt.Sprintf("//hollow failed: %v", err)), weCommandOutput{}, nil
 	}
@@ -876,7 +876,7 @@ func (s *Server) handleWESphere(_ context.Context, _ *gomcp.CallToolRequest, inp
 		cmd = "hsphere"
 	}
 	cmd += fmt.Sprintf(" %s %d", input.Pattern, input.Radius)
-	resp, err := s.conn.RunWECommand(cmd)
+	resp, err := s.conn.RunBulkWECommand(cmd)
 	if err != nil {
 		return toolError(fmt.Sprintf("//%s failed: %v", cmd, err)), weCommandOutput{}, nil
 	}
@@ -899,7 +899,7 @@ func (s *Server) handleWECyl(_ context.Context, _ *gomcp.CallToolRequest, input 
 	if input.Height > 0 {
 		cmd += fmt.Sprintf(" %d", input.Height)
 	}
-	resp, err := s.conn.RunWECommand(cmd)
+	resp, err := s.conn.RunBulkWECommand(cmd)
 	if err != nil {
 		return toolError(fmt.Sprintf("//%s failed: %v", cmd, err)), weCommandOutput{}, nil
 	}
@@ -919,7 +919,7 @@ func (s *Server) handleWEPyramid(_ context.Context, _ *gomcp.CallToolRequest, in
 		cmd = "hpyramid"
 	}
 	cmd += fmt.Sprintf(" %s %d", input.Pattern, input.Size)
-	resp, err := s.conn.RunWECommand(cmd)
+	resp, err := s.conn.RunBulkWECommand(cmd)
 	if err != nil {
 		return toolError(fmt.Sprintf("//%s failed: %v", cmd, err)), weCommandOutput{}, nil
 	}
@@ -932,7 +932,7 @@ func (s *Server) handleWEGenerate(_ context.Context, _ *gomcp.CallToolRequest, i
 		return toolError(err.Error()), weCommandOutput{}, nil
 	}
 	cmd := "generate " + input.Expression
-	resp, err := s.conn.RunWECommand(cmd)
+	resp, err := s.conn.RunBulkWECommand(cmd)
 	if err != nil {
 		return toolError(fmt.Sprintf("//generate failed: %v", err)), weCommandOutput{}, nil
 	}
@@ -946,7 +946,7 @@ func (s *Server) handleWESmooth(_ context.Context, _ *gomcp.CallToolRequest, inp
 		iterations = 1
 	}
 	cmd := fmt.Sprintf("smooth %d", iterations)
-	resp, err := s.conn.RunWECommand(cmd)
+	resp, err := s.conn.RunBulkWECommand(cmd)
 	if err != nil {
 		return toolError(fmt.Sprintf("//smooth failed: %v", err)), weCommandOutput{}, nil
 	}
@@ -955,7 +955,7 @@ func (s *Server) handleWESmooth(_ context.Context, _ *gomcp.CallToolRequest, inp
 
 // handleWENaturalize naturalizes terrain in the selection.
 func (s *Server) handleWENaturalize(_ context.Context, _ *gomcp.CallToolRequest, _ weNaturalizeInput) (*gomcp.CallToolResult, weCommandOutput, error) {
-	resp, err := s.conn.RunWECommand("naturalize")
+	resp, err := s.conn.RunBulkWECommand("naturalize")
 	if err != nil {
 		return toolError(fmt.Sprintf("//naturalize failed: %v", err)), weCommandOutput{}, nil
 	}
@@ -968,7 +968,7 @@ func (s *Server) handleWEOverlay(_ context.Context, _ *gomcp.CallToolRequest, in
 		return toolError(err.Error()), weCommandOutput{}, nil
 	}
 	cmd := "overlay " + input.Pattern
-	resp, err := s.conn.RunWECommand(cmd)
+	resp, err := s.conn.RunBulkWECommand(cmd)
 	if err != nil {
 		return toolError(fmt.Sprintf("//overlay failed: %v", err)), weCommandOutput{}, nil
 	}
@@ -1100,7 +1100,7 @@ func (s *Server) handleSetblock(_ context.Context, _ *gomcp.CallToolRequest, inp
 		return toolError(err.Error()), setblockOutput{}, nil
 	}
 	cmd := fmt.Sprintf("setblock %d %d %d %s", input.X, input.Y, input.Z, input.Block)
-	resp, err := s.conn.RunCommand(cmd)
+	resp, err := s.conn.RunBulkCommand(cmd)
 	if err != nil {
 		return toolError(fmt.Sprintf("/setblock failed: %v", err)), setblockOutput{}, nil
 	}
@@ -1120,7 +1120,7 @@ func (s *Server) handleFill(_ context.Context, _ *gomcp.CallToolRequest, input f
 	var lastResp string
 	for _, r := range regions {
 		cmd := fmt.Sprintf("fill %d %d %d %d %d %d %s", r[0], r[1], r[2], r[3], r[4], r[5], input.Block)
-		resp, err := s.conn.RunCommand(cmd)
+		resp, err := s.conn.RunBulkCommand(cmd)
 		if err != nil {
 			return toolError(fmt.Sprintf("/fill failed: %v", err)), fillOutput{}, nil
 		}
@@ -1142,7 +1142,7 @@ func (s *Server) handleClone(_ context.Context, _ *gomcp.CallToolRequest, input 
 	cmd := fmt.Sprintf("clone %d %d %d %d %d %d %d %d %d",
 		input.X1, input.Y1, input.Z1, input.X2, input.Y2, input.Z2,
 		input.DX, input.DY, input.DZ)
-	resp, err := s.conn.RunCommand(cmd)
+	resp, err := s.conn.RunBulkCommand(cmd)
 	if err != nil {
 		return toolError(fmt.Sprintf("/clone failed: %v", err)), cloneOutput{}, nil
 	}

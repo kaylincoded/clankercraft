@@ -67,6 +67,7 @@ func run(cmd *cobra.Command, args []string) error {
 	// errgroup cancels gctx on first error, so a broken MCP transport
 	// tears down the MC connection (and vice versa).
 	conn := connection.New(cfg, logger)
+	conn.SetRCON(rconClient)
 	mcpServer := mcp.New(version, logger, conn)
 
 	g, gctx := errgroup.WithContext(ctx)

@@ -1102,3 +1102,122 @@ func TestResetPositionOnDisconnect(t *testing.T) {
 		t.Error("GetPosition() should return false after resetPosition")
 	}
 }
+
+// --- RCON Routing Tests ---
+
+// mockRCON implements RCONExecutor for testing.
+type mockRCON struct {
+	available bool
+	lastCmd   string
+	resp      string
+	err       error
+}
+
+func (m *mockRCON) IsAvailable() bool { return m.available }
+func (m *mockRCON) Execute(command string) (string, error) {
+	m.lastCmd = command
+	if m.err != nil {
+		return "", m.err
+	}
+	return m.resp, nil
+}
+
+func TestRunBulkWECommandUsesRCON(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	mock := &mockRCON{available: true, resp: "42 blocks changed"}
+	conn.SetRCON(mock)
+
+	resp, err := conn.RunBulkWECommand("set stone")
+	if err != nil {
+		t.Fatalf("RunBulkWECommand: %v", err)
+	}
+	if resp != "42 blocks changed" {
+		t.Errorf("response = %q, want %q", resp, "42 blocks changed")
+	}
+	if mock.lastCmd != "//set stone" {
+		t.Errorf("RCON command = %q, want %q", mock.lastCmd, "//set stone")
+	}
+}
+
+func TestRunBulkWECommandFallsBackToChat(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	mock := &mockRCON{available: false}
+	conn.SetRCON(mock)
+
+	// With no RCON and no real MC connection, RunWECommand will fail.
+	// Verify it attempts the chat path (returns error from SendCommand).
+	_, err := conn.RunBulkWECommand("set stone")
+	if err == nil {
+		t.Fatal("expected error when RCON unavailable and no MC connection")
+	}
+	// The error should be from the chat path, not from RCON.
+	if mock.lastCmd != "" {
+		t.Errorf("RCON should not have been called, got command %q", mock.lastCmd)
+	}
+}
+
+func TestRunBulkCommandUsesRCON(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	mock := &mockRCON{available: true, resp: "Filled 100 blocks"}
+	conn.SetRCON(mock)
+
+	resp, err := conn.RunBulkCommand("fill 0 0 0 10 10 10 stone")
+	if err != nil {
+		t.Fatalf("RunBulkCommand: %v", err)
+	}
+	if resp != "Filled 100 blocks" {
+		t.Errorf("response = %q, want %q", resp, "Filled 100 blocks")
+	}
+	if mock.lastCmd != "fill 0 0 0 10 10 10 stone" {
+		t.Errorf("RCON command = %q, want %q", mock.lastCmd, "fill 0 0 0 10 10 10 stone")
+	}
+}
+
+func TestRunBulkCommandFallsBackToChat(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	mock := &mockRCON{available: false}
+	conn.SetRCON(mock)
+
+	_, err := conn.RunBulkCommand("fill 0 0 0 10 10 10 stone")
+	if err == nil {
+		t.Fatal("expected error when RCON unavailable and no MC connection")
+	}
+	if mock.lastCmd != "" {
+		t.Errorf("RCON should not have been called, got command %q", mock.lastCmd)
+	}
+}
+
+func TestRunBulkWECommandNoRCONSet(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+	// No SetRCON called — should fall back to chat path.
+	_, err := conn.RunBulkWECommand("set stone")
+	if err == nil {
+		t.Fatal("expected error with no RCON and no MC connection")
+	}
+}
+
+func TestSetRCON(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	mock := &mockRCON{available: true, resp: "ok"}
+	conn.SetRCON(mock)
+
+	// Verify RCON is wired by calling RunBulkWECommand.
+	resp, err := conn.RunBulkWECommand("test")
+	if err != nil {
+		t.Fatalf("RunBulkWECommand: %v", err)
+	}
+	if resp != "ok" {
+		t.Errorf("response = %q, want %q", resp, "ok")
+	}
+}

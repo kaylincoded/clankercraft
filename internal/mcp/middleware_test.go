@@ -29,8 +29,10 @@ type mockBotState struct {
 	selection       engine.Selection
 	hasPos1         bool
 	hasPos2         bool
-	runWECommandFn  func(command string) (string, error)
-	runCommandFn    func(command string) (string, error)
+	runWECommandFn      func(command string) (string, error)
+	runCommandFn        func(command string) (string, error)
+	runBulkWECommandFn  func(command string) (string, error)
+	runBulkCommandFn    func(command string) (string, error)
 }
 
 func (m *mockBotState) IsConnected() bool { return m.connected }
@@ -104,6 +106,19 @@ func (m *mockBotState) RunCommand(command string) (string, error) {
 		return m.runCommandFn(command)
 	}
 	return "Command executed.", nil
+}
+func (m *mockBotState) RunBulkWECommand(command string) (string, error) {
+	if m.runBulkWECommandFn != nil {
+		return m.runBulkWECommandFn(command)
+	}
+	// Default: delegate to RunWECommand (same as real impl when no RCON)
+	return m.RunWECommand(command)
+}
+func (m *mockBotState) RunBulkCommand(command string) (string, error) {
+	if m.runBulkCommandFn != nil {
+		return m.runBulkCommandFn(command)
+	}
+	return m.RunCommand(command)
 }
 
 func TestRequireWETierAllowsWithoutSelection(t *testing.T) {

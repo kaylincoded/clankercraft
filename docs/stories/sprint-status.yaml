@@ -80,7 +80,7 @@ development_status:
   # Epic 4: RCON Channel
   epic-4: in-progress
   4-1-rcon-client-connection: done
-  4-2-command-routing-chat-vs-rcon: backlog
+  4-2-command-routing-chat-vs-rcon: done
   epic-4-retrospective: optional
 
   # Epic 5: In-Game Chat Interface & LLM Integration

@@ -121,6 +121,12 @@ func isWENoiseMessage(msg string) bool {
 // AuthFunc is the function signature for MSA authentication.
 type AuthFunc func(cfg *config.Config, logger *slog.Logger) (*bot.Auth, error)
 
+// RCONExecutor abstracts RCON command execution to avoid circular imports.
+type RCONExecutor interface {
+	IsAvailable() bool
+	Execute(command string) (string, error)
+}
+
 // Connection manages the Minecraft server connection via go-mc.
 type Connection struct {
 	cfg    *config.Config
@@ -150,6 +156,7 @@ type Connection struct {
 	hasPos1        bool             // true after pos1 is set (wand or programmatic)
 	hasPos2        bool             // true after pos2 is set (wand or programmatic)
 	wandDone       chan struct{}     // closed on disconnect to stop wand listener
+	rcon           RCONExecutor     // optional RCON client for bulk command routing
 }
 
 // New creates a new Connection configured from the given config.
@@ -929,6 +936,42 @@ func (c *Connection) SendCommand(command string) error {
 		return fmt.Errorf("not connected")
 	}
 	return mgr.SendCommand(command)
+}
+
+// SetRCON injects an RCON executor for bulk command routing.
+func (c *Connection) SetRCON(r RCONExecutor) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rcon = r
+}
+
+// RunBulkWECommand sends a WorldEdit command, preferring RCON if available.
+// Falls back to chat dispatch (RunWECommand) when RCON is unavailable.
+// The command should NOT include the leading // — e.g., RunBulkWECommand("set stone").
+func (c *Connection) RunBulkWECommand(command string) (string, error) {
+	c.mu.Lock()
+	r := c.rcon
+	c.mu.Unlock()
+
+	if r != nil && r.IsAvailable() {
+		// RCON: send "//" + command (WorldEdit commands use // prefix on console)
+		return r.Execute("//" + command)
+	}
+	return c.RunWECommand(command)
+}
+
+// RunBulkCommand sends a vanilla command, preferring RCON if available.
+// Falls back to chat dispatch (RunCommand) when RCON is unavailable.
+// The command should NOT include the leading / — e.g., RunBulkCommand("fill 0 0 0 10 10 10 stone").
+func (c *Connection) RunBulkCommand(command string) (string, error) {
+	c.mu.Lock()
+	r := c.rcon
+	c.mu.Unlock()
+
+	if r != nil && r.IsAvailable() {
+		return r.Execute(command)
+	}
+	return c.RunCommand(command)
 }
 
 // RunCommand sends a vanilla command and waits for the server response.
