@@ -13,11 +13,13 @@ type ConnChecker interface {
 }
 
 // BotState extends ConnChecker with game state access for tools that need
-// position data or the ability to send packets.
+// position data, rotation, or world queries.
 type BotState interface {
 	ConnChecker
 	GetPosition() (connection.Position, bool)
 	SendRotation(yaw, pitch float32) error
+	BlockAt(x, y, z int) (string, error)
+	FindBlock(blockType string, maxDist int) (bx, by, bz int, found bool, err error)
 }
 
 // requireConnection wraps a typed tool handler with a connection check.

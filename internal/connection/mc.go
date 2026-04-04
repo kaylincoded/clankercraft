@@ -13,8 +13,11 @@ import (
 	"github.com/Tnze/go-mc/bot/basic"
 	"github.com/Tnze/go-mc/bot/msg"
 	"github.com/Tnze/go-mc/bot/playerlist"
+	mcworld "github.com/Tnze/go-mc/bot/world"
 	"github.com/Tnze/go-mc/chat"
 	"github.com/Tnze/go-mc/data/packetid"
+	"github.com/Tnze/go-mc/level"
+	"github.com/Tnze/go-mc/level/block"
 	pk "github.com/Tnze/go-mc/net/packet"
 	"github.com/Tnze/go-mc/offline"
 	"github.com/kaylincoded/clankercraft/internal/config"
@@ -73,6 +76,7 @@ type Connection struct {
 	player  *basic.Player
 	msgMgr  *msg.Manager
 	plist   *playerlist.PlayerList
+	world   *mcworld.World
 
 	authFn          AuthFunc
 	connectAndRun   func(ctx context.Context) error   // injectable for testing RunWithReconnect
@@ -151,6 +155,9 @@ func (c *Connection) Connect(ctx context.Context) error {
 
 	// Player list
 	c.plist = playerlist.New(client)
+
+	// World chunk storage — auto-loads chunks from server packets
+	c.world = mcworld.NewWorld(client, c.player, mcworld.EventsListener{})
 
 	// Chat message handling
 	c.msgMgr = msg.New(client, c.player, c.plist, msg.EventsHandler{
@@ -414,4 +421,129 @@ func (c *Connection) resetPosition() {
 	defer c.mu.Unlock()
 	c.pos = Position{}
 	c.hasPos = false
+}
+
+// BlockAt returns the block name at the given world coordinates.
+// Returns an error if the chunk is not loaded or coordinates are out of range.
+func (c *Connection) BlockAt(x, y, z int) (string, error) {
+	c.mu.Lock()
+	w := c.world
+	client := c.client
+	player := c.player
+	c.mu.Unlock()
+
+	if w == nil || client == nil {
+		return "", fmt.Errorf("not connected")
+	}
+
+	chunkPos := level.ChunkPos{int32(x >> 4), int32(z >> 4)}
+	chunk, ok := w.Columns[chunkPos]
+	if !ok {
+		return "", fmt.Errorf("chunk at (%d, %d) not loaded", chunkPos[0], chunkPos[1])
+	}
+
+	dimType := client.Registries.DimensionType.GetByID(player.DimensionType)
+	if dimType == nil {
+		return "", fmt.Errorf("unknown dimension type %d", player.DimensionType)
+	}
+	minY := int(dimType.MinY)
+
+	sectionIdx := (y - minY) >> 4
+	if sectionIdx < 0 || sectionIdx >= len(chunk.Sections) {
+		return "", fmt.Errorf("y=%d out of range (minY=%d, sections=%d)", y, minY, len(chunk.Sections))
+	}
+
+	section := &chunk.Sections[sectionIdx]
+	blockIdx := ((y & 0xF) << 8) | ((z & 0xF) << 4) | (x & 0xF)
+	stateID := section.GetBlock(blockIdx)
+
+	if int(stateID) >= len(block.StateList) {
+		return "", fmt.Errorf("unknown block state %d", stateID)
+	}
+	return block.StateList[stateID].ID(), nil
+}
+
+// FindBlock searches loaded chunks for the nearest block of the given type
+// within maxDist blocks of the bot's position. Returns coordinates and whether
+// a match was found.
+func (c *Connection) FindBlock(blockType string, maxDist int) (bx, by, bz int, found bool, err error) {
+	c.mu.Lock()
+	w := c.world
+	pos := c.pos
+	hasPos := c.hasPos
+	client := c.client
+	player := c.player
+	c.mu.Unlock()
+
+	if w == nil || client == nil {
+		return 0, 0, 0, false, fmt.Errorf("not connected")
+	}
+	if !hasPos {
+		return 0, 0, 0, false, fmt.Errorf("position not yet known")
+	}
+
+	dimType := client.Registries.DimensionType.GetByID(player.DimensionType)
+	if dimType == nil {
+		return 0, 0, 0, false, fmt.Errorf("unknown dimension type")
+	}
+	minY := int(dimType.MinY)
+
+	// Cap max distance to limit scan
+	if maxDist > 64 {
+		maxDist = 64
+	}
+
+	botX, botY, botZ := int(pos.X), int(pos.Y), int(pos.Z)
+	chunkRadius := (maxDist >> 4) + 1
+	botCX, botCZ := int32(botX>>4), int32(botZ>>4)
+
+	bestDistSq := int64(maxDist+1) * int64(maxDist+1)
+	found = false
+
+	for cx := botCX - int32(chunkRadius); cx <= botCX+int32(chunkRadius); cx++ {
+		for cz := botCZ - int32(chunkRadius); cz <= botCZ+int32(chunkRadius); cz++ {
+			chunk, ok := w.Columns[level.ChunkPos{cx, cz}]
+			if !ok {
+				continue
+			}
+
+			for si, section := range chunk.Sections {
+				if section.BlockCount == 0 {
+					continue
+				}
+				sectionY := minY + si*16
+
+				for i := 0; i < 16*16*16; i++ {
+					stateID := section.GetBlock(i)
+					if block.IsAir(stateID) {
+						continue
+					}
+					if int(stateID) >= len(block.StateList) {
+						continue
+					}
+					if block.StateList[stateID].ID() != blockType {
+						continue
+					}
+
+					// Decode block position from index
+					wy := sectionY + (i >> 8)
+					wz := int(cz)*16 + ((i >> 4) & 0xF)
+					wx := int(cx)*16 + (i & 0xF)
+
+					dx := int64(wx - botX)
+					dy := int64(wy - botY)
+					dz := int64(wz - botZ)
+					distSq := dx*dx + dy*dy + dz*dz
+
+					if distSq < bestDistSq {
+						bestDistSq = distSq
+						bx, by, bz = wx, wy, wz
+						found = true
+					}
+				}
+			}
+		}
+	}
+
+	return bx, by, bz, found, nil
 }

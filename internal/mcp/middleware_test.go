@@ -2,13 +2,14 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/kaylincoded/clankercraft/internal/connection"
 )
 
-// mockBotState satisfies both ConnChecker and BotState for testing.
+// mockBotState satisfies BotState for testing.
 type mockBotState struct {
 	connected    bool
 	pos          connection.Position
@@ -16,6 +17,8 @@ type mockBotState struct {
 	lastYaw      float32
 	lastPitch    float32
 	sendRotErr   error
+	blockAtFn    func(x, y, z int) (string, error)
+	findBlockFn  func(blockType string, maxDist int) (int, int, int, bool, error)
 }
 
 func (m *mockBotState) IsConnected() bool { return m.connected }
@@ -24,6 +27,18 @@ func (m *mockBotState) SendRotation(yaw, pitch float32) error {
 	m.lastYaw = yaw
 	m.lastPitch = pitch
 	return m.sendRotErr
+}
+func (m *mockBotState) BlockAt(x, y, z int) (string, error) {
+	if m.blockAtFn != nil {
+		return m.blockAtFn(x, y, z)
+	}
+	return "", fmt.Errorf("not implemented")
+}
+func (m *mockBotState) FindBlock(blockType string, maxDist int) (int, int, int, bool, error) {
+	if m.findBlockFn != nil {
+		return m.findBlockFn(blockType, maxDist)
+	}
+	return 0, 0, 0, false, fmt.Errorf("not implemented")
 }
 
 func TestRequireConnectionRejectsDisconnected(t *testing.T) {

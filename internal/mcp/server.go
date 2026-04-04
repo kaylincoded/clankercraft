@@ -57,6 +57,36 @@ type lookAtOutput struct {
 	Message string `json:"message"`
 }
 
+// getBlockInfoInput is the input schema for the get-block-info tool.
+type getBlockInfoInput struct {
+	X int `json:"x" jsonschema:"X coordinate"`
+	Y int `json:"y" jsonschema:"Y coordinate"`
+	Z int `json:"z" jsonschema:"Z coordinate"`
+}
+
+// getBlockInfoOutput is the output schema for the get-block-info tool.
+type getBlockInfoOutput struct {
+	Block string `json:"block"`
+	X     int    `json:"x"`
+	Y     int    `json:"y"`
+	Z     int    `json:"z"`
+}
+
+// findBlockInput is the input schema for the find-block tool.
+type findBlockInput struct {
+	BlockType   string `json:"blockType" jsonschema:"block type to search for, e.g. minecraft:stone"`
+	MaxDistance int    `json:"maxDistance,omitempty" jsonschema:"max search distance in blocks (default 16, max 64)"`
+}
+
+// findBlockOutput is the output schema for the find-block tool.
+type findBlockOutput struct {
+	Block   string `json:"block"`
+	X       int    `json:"x"`
+	Y       int    `json:"y"`
+	Z       int    `json:"z"`
+	Message string `json:"message"`
+}
+
 // New creates a configured MCP server with registered tools.
 func New(version string, logger *slog.Logger, conn BotState) *Server {
 	s := gomcp.NewServer(
@@ -103,6 +133,18 @@ func (s *Server) registerTools() {
 		Name:        "look-at",
 		Description: "Make the bot face toward the specified coordinates",
 	}, requireConnection(s.conn, s.handleLookAt))
+
+	// get-block-info — requires connection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "get-block-info",
+		Description: "Get the block type at specific coordinates in the Minecraft world",
+	}, requireConnection(s.conn, s.handleGetBlockInfo))
+
+	// find-block — requires connection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "find-block",
+		Description: "Find the nearest block of a given type within a search distance",
+	}, requireConnection(s.conn, s.handleFindBlock))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -157,6 +199,45 @@ func calcYawPitch(fromX, fromY, fromZ, toX, toY, toZ float64) (yaw, pitch float3
 	yaw = float32(-math.Atan2(dx, dz) * 180 / math.Pi)
 	pitch = float32(-math.Atan2(dy, dist) * 180 / math.Pi)
 	return yaw, pitch
+}
+
+// handleGetBlockInfo returns the block type at the given coordinates.
+func (s *Server) handleGetBlockInfo(_ context.Context, _ *gomcp.CallToolRequest, input getBlockInfoInput) (*gomcp.CallToolResult, getBlockInfoOutput, error) {
+	name, err := s.conn.BlockAt(input.X, input.Y, input.Z)
+	if err != nil {
+		return toolError(fmt.Sprintf("cannot read block at (%d, %d, %d): %v", input.X, input.Y, input.Z, err)), getBlockInfoOutput{}, nil
+	}
+	return nil, getBlockInfoOutput{
+		Block: name,
+		X:     input.X,
+		Y:     input.Y,
+		Z:     input.Z,
+	}, nil
+}
+
+// handleFindBlock searches for the nearest block of a given type.
+func (s *Server) handleFindBlock(_ context.Context, _ *gomcp.CallToolRequest, input findBlockInput) (*gomcp.CallToolResult, findBlockOutput, error) {
+	maxDist := input.MaxDistance
+	if maxDist <= 0 {
+		maxDist = 16
+	}
+
+	bx, by, bz, found, err := s.conn.FindBlock(input.BlockType, maxDist)
+	if err != nil {
+		return toolError(fmt.Sprintf("block search failed: %v", err)), findBlockOutput{}, nil
+	}
+	if !found {
+		return nil, findBlockOutput{
+			Message: fmt.Sprintf("no %s found within %d blocks", input.BlockType, maxDist),
+		}, nil
+	}
+	return nil, findBlockOutput{
+		Block:   input.BlockType,
+		X:       bx,
+		Y:       by,
+		Z:       bz,
+		Message: fmt.Sprintf("found %s at (%d, %d, %d)", input.BlockType, bx, by, bz),
+	}, nil
 }
 
 // Run starts the MCP stdio transport. Blocks until ctx is cancelled.

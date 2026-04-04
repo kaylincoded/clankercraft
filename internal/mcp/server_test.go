@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"math"
 	"os"
@@ -341,6 +342,123 @@ func TestCalcYawPitchDirections(t *testing.T) {
 				t.Errorf("pitch = %v, want %v (tolerance %v)", pitch, tc.wantPitch, tc.tolerance)
 			}
 		})
+	}
+}
+
+// --- get-block-info tool tests ---
+
+func TestGetBlockInfoWhenConnected(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		blockAtFn: func(x, y, z int) (string, error) {
+			return "minecraft:stone", nil
+		},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "get-block-info",
+		Arguments: map[string]any{"x": 10, "y": 64, "z": -5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get-block-info): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("get-block-info returned error: %v", result.Content)
+	}
+}
+
+func TestGetBlockInfoChunkNotLoaded(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		blockAtFn: func(x, y, z int) (string, error) {
+			return "", fmt.Errorf("chunk at (0, 0) not loaded")
+		},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "get-block-info",
+		Arguments: map[string]any{"x": 10, "y": 64, "z": -5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get-block-info): %v", err)
+	}
+	if !result.IsError {
+		t.Error("get-block-info should return error for unloaded chunk")
+	}
+}
+
+func TestGetBlockInfoWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "get-block-info",
+		Arguments: map[string]any{"x": 0, "y": 64, "z": 0},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get-block-info): %v", err)
+	}
+	if !result.IsError {
+		t.Error("get-block-info should return error when disconnected")
+	}
+}
+
+// --- find-block tool tests ---
+
+func TestFindBlockWhenFound(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		findBlockFn: func(blockType string, maxDist int) (int, int, int, bool, error) {
+			if blockType == "minecraft:diamond_ore" {
+				return 5, 12, -3, true, nil
+			}
+			return 0, 0, 0, false, nil
+		},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "find-block",
+		Arguments: map[string]any{"blockType": "minecraft:diamond_ore"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(find-block): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("find-block returned error: %v", result.Content)
+	}
+}
+
+func TestFindBlockNotFound(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		findBlockFn: func(blockType string, maxDist int) (int, int, int, bool, error) {
+			return 0, 0, 0, false, nil
+		},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "find-block",
+		Arguments: map[string]any{"blockType": "minecraft:diamond_ore"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(find-block): %v", err)
+	}
+	if result.IsError {
+		t.Error("find-block should not return IsError for not-found (it's a valid response)")
+	}
+}
+
+func TestFindBlockWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "find-block",
+		Arguments: map[string]any{"blockType": "minecraft:stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(find-block): %v", err)
+	}
+	if !result.IsError {
+		t.Error("find-block should return error when disconnected")
 	}
 }
 
