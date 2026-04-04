@@ -89,7 +89,7 @@ development_status:
   5-2-chat-response-system: done
   5-3-llm-provider-interface-claude-implementation: done
   5-4-tool-calling-agent-loop: done
-  5-5-conversation-context-natural-language-building: backlog
+  5-5-conversation-context-natural-language-building: done
   5-6-bot-summoning-teleportation: backlog
   epic-5-retrospective: optional
 

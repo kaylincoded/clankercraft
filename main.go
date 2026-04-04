@@ -91,6 +91,7 @@ func run(cmd *cobra.Command, args []string) error {
 	if llmProvider != nil {
 		toolExec := agent.NewToolExecutor(conn)
 		agentLoop := agent.NewAgent(llmProvider, toolExec, logger)
+		agentLoop.Start(ctx)
 		conn.OnWhisper(func(sender, msg string) {
 			go func() {
 				replyFn := func(reply string) error { return conn.SendWhisper(sender, reply) }
