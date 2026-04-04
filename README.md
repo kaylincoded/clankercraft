@@ -1,19 +1,19 @@
 <h1 align="center">
   <br>
-  ⛏️ clankercraft
+  clankercraft
   <br>
 </h1>
 
 <p align="center">
-  <b>Claude yearns for the mines.</b> an MCP server that connects LLMs to a live Minecraft world via <a href="https://github.com/PrismarineJS/mineflayer">Mineflayer</a>.
+  <b>Claude yearns for the mines.</b> An AI building partner for Minecraft — lives in your world, listens for whispers, builds with WorldEdit.
 </p>
 
 https://github.com/user-attachments/assets/f567d526-3b80-4e54-86e3-e24981f6c288
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Minecraft-1.21.11-62b47a?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0yIDJoMjB2MjBIMnoiLz48L3N2Zz4=" />
+  <img src="https://img.shields.io/badge/Minecraft-1.21-62b47a?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0yIDJoMjB2MjBIMnoiLz48L3N2Zz4=" />
   <img src="https://img.shields.io/badge/Protocol-MCP-b4befe?style=flat-square" />
-  <img src="https://img.shields.io/badge/Runtime-Node_%3E%3D20-339933?style=flat-square&logo=node.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white" />
   <img src="https://img.shields.io/badge/Claude_Code-Skills_Included-cba6f7?style=flat-square" />
 </p>
 
@@ -21,32 +21,41 @@ https://github.com/user-attachments/assets/f567d526-3b80-4e54-86e3-e24981f6c288
 
 ## What It Does
 
-A bot joins your Minecraft server and exposes 25 tools over [Model Context Protocol](https://modelcontextprotocol.io). Claude (or any MCP client) can then move, build, mine, craft, chat, and scan the world — all through natural language.
+A bot joins your Minecraft server as a player. You whisper to it in-game, it talks to Claude, and builds what you describe — using WorldEdit's full command vocabulary for selections, patterns, expressions, schematics, and terrain operations.
 
-Ships with **Claude Code skills** — battle-tested building patterns so the LLM knows _how_ to build, not just _what tools exist_.
+Also exposes 37 tools over [Model Context Protocol](https://modelcontextprotocol.io) so Claude Desktop, Claude Code, or any MCP client can drive it from outside the game.
+
+One binary, zero runtime dependencies, sub-second startup.
+
+## Two Ways to Use It
+
+### In-Game Chat (whisper to the bot)
+Set `ANTHROPIC_API_KEY` and the bot becomes an autonomous AI player. Whisper commands in natural language, it builds with WorldEdit and responds conversationally.
+
+### MCP Server (Claude Desktop / Claude Code)
+Connect any MCP client over stdio. Claude sees 37 tools and the building skills, and can move, build, scan, and interact with the world.
+
+Both interfaces work simultaneously.
 
 ## What's Inside
 
 ```
-├── src/
-│   ├── main.ts              MCP server entrypoint
-│   ├── bot-connection.ts    Mineflayer bot lifecycle
-│   ├── config.ts            CLI arg parsing (--host, --port, --username)
-│   └── tools/
-│       ├── block-tools.ts       place, dig, scan, find blocks & signs
-│       ├── chat-tools.ts        send & read chat messages
-│       ├── crafting-tools.ts    recipes, crafting, ingredient checks
-│       ├── entity-tools.ts      find entities
-│       ├── flight-tools.ts      creative flight
-│       ├── furnace-tools.ts     smelting
-│       ├── gamestate-tools.ts   gamemode detection
-│       ├── inventory-tools.ts   list, find, equip items
-│       └── position-tools.ts    move, look, jump, teleport
-├── .claude/skills/
-│   ├── minecraft-player/        how to build efficiently with /fill
-│   └── minecraft-urban-planner/ architectural patterns & material palettes
-├── tools/world-scanner/         Go tool — scan .minecraft saves offline
-└── tests/
+├── main.go                    Entrypoint — wires everything together
+├── internal/
+│   ├── agent/                 LLM agent loop — whisper → Claude → tool calls → reply
+│   ├── chat/                  Chat parsing and message handling
+│   ├── config/                CLI flags, env vars, config file layering
+│   ├── connection/            go-mc protocol connection with auto-reconnect
+│   ├── engine/                WorldEdit capability detection and command routing
+│   ├── llm/                   LLM provider interface (Claude implementation)
+│   ├── log/                   Structured logging setup
+│   ├── mcp/                   MCP stdio server — 37 tools over JSON-RPC
+│   ├── rcon/                  RCON client for bulk WorldEdit operations
+│   └── schematic/             Schematic directory indexer
+├── .claude/skills/            Building knowledge for the LLM
+│   ├── minecraft-player/      /fill over place-block, verify with scan-area, etc.
+│   └── minecraft-urban-planner/  Material palettes, facade depth, floor spacing
+└── tools/world-scanner/       Go tool — scan .minecraft saves offline (15M blocks/sec)
 ```
 
 ## Skills — What Makes This Different
@@ -55,7 +64,7 @@ Most MCP servers give the LLM tools and hope for the best. This one ships opinio
 
 ### `minecraft-player`
 The building fundamentals. Stuff the LLM gets wrong without guidance:
-- **Use `/fill`, not `place-block`** — one command places an entire wall; `place-block` needs chunk loading and has 1-block reach
+- **Use `/fill`, not `place-block`** — one command places an entire wall
 - **Never send commands in parallel** — Minecraft chat rate-limits; only the first goes through
 - **Verify with `scan-area`** — catch silently dropped commands before moving on
 - **Real doors, not air gaps** — blockstate syntax for doors, pressure plates, redstone
@@ -71,9 +80,38 @@ Architectural patterns for builds that actually look good:
 
 ### 1. Run a Minecraft Server
 
-Any Java Edition 1.21.11 server. For singleplayer, open to LAN (`ESC → Open to LAN`).
+Any Java Edition server with [WorldEdit](https://enginehub.org/worldedit/) (Paper, Spigot, or Fabric). Vanilla servers work too — the bot falls back to `/fill`, `/setblock`, and `/clone`.
 
-### 2. Configure Your MCP Client
+### 2. Install
+
+**From release:**
+```bash
+# Download from GitHub Releases for your platform
+curl -LO https://github.com/kaylincoded/clankercraft/releases/latest/download/clankercraft_linux_amd64.tar.gz
+tar xzf clankercraft_linux_amd64.tar.gz
+```
+
+**From source:**
+```bash
+git clone https://github.com/kaylincoded/clankercraft.git
+cd clankercraft
+go build -o clankercraft .
+```
+
+### 3. Run
+
+**In-game AI mode** (whisper to the bot):
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+./clankercraft --host localhost --port 25565 --username ClankerBot
+```
+
+**MCP-only mode** (no API key needed — the MCP client provides the LLM):
+```bash
+./clankercraft --host localhost --port 25565 --username ClankerBot
+```
+
+### 4. Configure Your MCP Client
 
 **Claude Desktop** — edit `claude_desktop_config.json`:
 
@@ -81,13 +119,11 @@ Any Java Edition 1.21.11 server. For singleplayer, open to LAN (`ESC → Open to
 {
   "mcpServers": {
     "minecraft": {
-      "command": "npx",
+      "command": "/path/to/clankercraft",
       "args": [
-        "-y",
-        "github:kaylincoded/clankercraft",
         "--host", "localhost",
         "--port", "25565",
-        "--username", "ClaudeBot"
+        "--username", "ClankerBot"
       ]
     }
   }
@@ -100,35 +136,58 @@ Any Java Edition 1.21.11 server. For singleplayer, open to LAN (`ESC → Open to
 {
   "mcpServers": {
     "minecraft": {
-      "command": "npx",
+      "command": "/path/to/clankercraft",
       "args": [
-        "-y",
-        "github:kaylincoded/clankercraft",
         "--host", "localhost",
         "--port", "25565",
-        "--username", "ClaudeBot"
+        "--username", "ClankerBot"
       ]
     }
   }
 }
 ```
 
-### 3. Talk to It
+### 5. Talk to It
 
-> "Build a small Japanese-style house near my position"
+In-game: whisper `/msg ClankerBot build a Japanese torii gate here`
 
-The bot joins, Claude reads the skills, and building starts.
+Via MCP: "Build a small Japanese-style house near my position"
 
-## Tools (25)
+## Tools (37)
 
 | Category | Tools |
 |---|---|
-| **Blocks** | `place-block` `dig-block` `get-block-info` `find-block` `scan-area` `read-sign` `find-signs` |
-| **Movement** | `get-position` `move-to-position` `look-at` `jump` `move-in-direction` `fly-to` |
-| **Inventory** | `list-inventory` `find-item` `equip-item` |
-| **Crafting** | `list-recipes` `get-recipe` `can-craft` `craft-item` |
-| **Chat** | `send-chat` `read-chat` |
-| **World** | `detect-gamemode` `find-entity` `smelt-item` |
+| **Status** | `ping` `status` `detect-gamemode` `detect-worldedit` |
+| **Position** | `get-position` `look-at` `teleport-to-player` |
+| **Blocks** | `get-block-info` `find-block` `scan-area` `read-sign` `find-signs` |
+| **Vanilla Build** | `setblock` `fill` `clone` |
+| **WorldEdit Selection** | `set-selection` `get-selection` |
+| **WorldEdit Region** | `we-set` `we-replace` `we-walls` `we-faces` `we-hollow` |
+| **WorldEdit Generation** | `we-sphere` `we-cyl` `we-pyramid` `we-generate` |
+| **WorldEdit Terrain** | `we-smooth` `we-naturalize` `we-overlay` |
+| **WorldEdit Clipboard** | `we-copy` `we-paste` `we-rotate` `we-flip` |
+| **WorldEdit History** | `we-undo` `we-redo` |
+| **Schematics** | `list-schematics` `load-schematic` |
+
+## Configuration
+
+Config is resolved in priority order: CLI flags > environment variables > config file > defaults.
+
+| Flag | Env Var | Default | Description |
+|---|---|---|---|
+| `--host` | `HOST` | `localhost` | Minecraft server address |
+| `--port` | `PORT` | `25565` | Server port |
+| `--username` | `USERNAME` | `LLMBot` | Bot's in-game name |
+| `--offline` | `OFFLINE` | `false` | Use offline/cracked mode |
+| `--rcon-port` | `RCON_PORT` | `25575` | RCON port |
+| `--rcon-password` | `RCON_PASSWORD` | | RCON password (enables bulk WorldEdit) |
+| `--log-level` | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
+| | `ANTHROPIC_API_KEY` | | Enables in-game AI chat mode |
+| | `LLM_MODEL` | | Override Claude model |
+
+Config file: `~/.config/clankercraft/config.yaml`
+
+Schematics: `~/.config/clankercraft/schematics/*.schem`
 
 ## World Scanner (Offline)
 
@@ -142,32 +201,14 @@ go build -o world-scanner .
 
 Use it to study reference builds before asking Claude to reproduce them.
 
-## Config
-
-```bash
-cp .env.example .env
-```
-
-| Variable | Default | Description |
-|---|---|---|
-| `MC_HOST` | `localhost` | Minecraft server address |
-| `MC_PORT` | `25565` | Server port |
-| `MC_USERNAME` | `LLMBot` | Bot's in-game name |
-
-These map to CLI args (`--host`, `--port`, `--username`) when running directly.
-
 ## Development
 
 ```bash
-git clone git@github.com:kaylincoded/clankercraft.git
-cd minecraft-mcp-server
-npm install
-npm run dev -- --host localhost --port 25565
+git clone https://github.com/kaylincoded/clankercraft.git
+cd clankercraft
+go build -o clankercraft .
+go test ./...
 ```
-
-## Contributing
-
-PRs and issues welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
