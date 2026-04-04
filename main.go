@@ -54,14 +54,9 @@ func run(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Connect to Minecraft server
+	// Connect to Minecraft server with auto-reconnect
 	conn := connection.New(cfg, logger)
-	if err := conn.Connect(ctx); err != nil {
-		return fmt.Errorf("minecraft connection: %w", err)
-	}
-
-	// Run game loop — blocks until disconnect or signal
-	gameErr := conn.HandleGame(ctx)
+	gameErr := conn.RunWithReconnect(ctx)
 
 	logger.Info("shutting down")
 	conn.Close()

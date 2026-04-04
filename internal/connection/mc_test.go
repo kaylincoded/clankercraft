@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/Tnze/go-mc/bot"
 	"github.com/Tnze/go-mc/offline"
@@ -29,8 +30,8 @@ func TestNewReturnsConfiguredConnection(t *testing.T) {
 	if conn.cfg != cfg {
 		t.Error("Connection.cfg not set correctly")
 	}
-	if conn.connected {
-		t.Error("new connection should not be connected")
+	if conn.State() != StateDisconnected {
+		t.Errorf("new connection state = %v, want StateDisconnected", conn.State())
 	}
 }
 
@@ -168,6 +169,60 @@ func TestCloseMultipleTimes(t *testing.T) {
 	}
 }
 
+func TestConnStateString(t *testing.T) {
+	tests := []struct {
+		state ConnState
+		want  string
+	}{
+		{StateDisconnected, "disconnected"},
+		{StateConnecting, "connecting"},
+		{StateConnected, "connected"},
+		{ConnState(99), "unknown"},
+	}
+	for _, tt := range tests {
+		if got := tt.state.String(); got != tt.want {
+			t.Errorf("ConnState(%d).String() = %q, want %q", tt.state, got, tt.want)
+		}
+	}
+}
+
+func TestStateTransitions(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	// Initial state
+	if conn.State() != StateDisconnected {
+		t.Errorf("initial state = %v, want StateDisconnected", conn.State())
+	}
+
+	// Transition to connecting
+	conn.setState(StateConnecting)
+	if conn.State() != StateConnecting {
+		t.Errorf("state = %v, want StateConnecting", conn.State())
+	}
+	if conn.IsConnected() {
+		t.Error("IsConnected() should be false when connecting")
+	}
+
+	// Transition to connected
+	conn.setState(StateConnected)
+	if conn.State() != StateConnected {
+		t.Errorf("state = %v, want StateConnected", conn.State())
+	}
+	if !conn.IsConnected() {
+		t.Error("IsConnected() should be true when connected")
+	}
+
+	// Transition back to disconnected
+	conn.setState(StateDisconnected)
+	if conn.State() != StateDisconnected {
+		t.Errorf("state = %v, want StateDisconnected", conn.State())
+	}
+	if conn.IsConnected() {
+		t.Error("IsConnected() should be false when disconnected")
+	}
+}
+
 func TestIsConnectedDefaultFalse(t *testing.T) {
 	cfg := &config.Config{Host: "localhost", Port: 25565}
 	conn := New(cfg, testLogger())
@@ -184,5 +239,120 @@ func TestHandleGameWithoutConnect(t *testing.T) {
 	err := conn.HandleGame(context.Background())
 	if err == nil {
 		t.Error("HandleGame() without Connect should error")
+	}
+}
+
+func TestBackoffDuration(t *testing.T) {
+	tests := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{0, 1 * time.Second},
+		{1, 2 * time.Second},
+		{2, 4 * time.Second},
+		{3, 8 * time.Second},
+		{4, 16 * time.Second},
+		{5, 30 * time.Second}, // cap
+		{6, 30 * time.Second}, // stays at cap
+		{10, 30 * time.Second},
+	}
+	for _, tt := range tests {
+		got := backoffDuration(tt.attempt)
+		if got != tt.want {
+			t.Errorf("backoffDuration(%d) = %v, want %v", tt.attempt, got, tt.want)
+		}
+	}
+}
+
+func TestReconnectConstants(t *testing.T) {
+	if MaxReconnectAttempts != 5 {
+		t.Errorf("MaxReconnectAttempts = %d, want 5", MaxReconnectAttempts)
+	}
+	if MaxBackoff != 30*time.Second {
+		t.Errorf("MaxBackoff = %v, want 30s", MaxBackoff)
+	}
+}
+
+func TestRunWithReconnectContextCancellation(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565, Offline: true, Username: "Bot"}
+	conn := New(cfg, testLogger())
+
+	// Cancel context immediately — RunWithReconnect should return ctx.Err()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	conn.connectAndRun = func(ctx context.Context) error {
+		return fmt.Errorf("connection refused")
+	}
+
+	err := conn.RunWithReconnect(ctx)
+	if err != context.Canceled {
+		t.Errorf("RunWithReconnect() with cancelled context = %v, want context.Canceled", err)
+	}
+}
+
+func zeroBackoff(attempt int) time.Duration { return 0 }
+
+func TestRunWithReconnectRetryExhaustion(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565, Offline: true, Username: "Bot"}
+	conn := New(cfg, testLogger())
+	conn.backoffFn = zeroBackoff
+
+	var attempts int
+	conn.connectAndRun = func(ctx context.Context) error {
+		attempts++
+		return fmt.Errorf("connection refused")
+	}
+
+	err := conn.RunWithReconnect(context.Background())
+	if err == nil {
+		t.Fatal("RunWithReconnect() should return error after max retries")
+	}
+	// 1 initial + 4 retries = 5 total attempts (MaxReconnectAttempts=5)
+	if attempts != MaxReconnectAttempts {
+		t.Errorf("attempts = %d, want %d", attempts, MaxReconnectAttempts)
+	}
+}
+
+func TestRunWithReconnectResetsOnSuccess(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565, Offline: true, Username: "Bot"}
+	conn := New(cfg, testLogger())
+	conn.backoffFn = zeroBackoff
+
+	var calls int
+	conn.connectAndRun = func(ctx context.Context) error {
+		calls++
+		switch {
+		case calls <= 3:
+			// First 3 calls fail (building up retry count)
+			return fmt.Errorf("connection refused")
+		case calls == 4:
+			// 4th call succeeds (returns nil = clean disconnect, triggers reconnect)
+			return nil
+		case calls <= 7:
+			// Next 3 calls fail again
+			return fmt.Errorf("connection refused")
+		case calls == 8:
+			// Success again, then we cancel
+			return nil
+		default:
+			// Final failure to break the loop
+			return context.Canceled
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		// Give it time to run through the attempts
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	conn.RunWithReconnect(ctx)
+	// If retry counter wasn't reset after success on call 4,
+	// calls 5-7 would exhaust retries (3 failures + prior 3 = 6 > 5).
+	// The fact that we got past call 7 proves the counter reset.
+	if calls < 7 {
+		t.Errorf("calls = %d, want at least 7 (proving retry counter reset after success)", calls)
 	}
 }
