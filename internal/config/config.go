@@ -18,7 +18,9 @@ type Config struct {
 	LogLevel     string `mapstructure:"log_level"`
 	Offline      bool   `mapstructure:"offline"`
 	RCONPort     int    `mapstructure:"rcon_port"`
-	RCONPassword string `mapstructure:"rcon_password"`
+	RCONPassword    string `mapstructure:"rcon_password"`
+	AnthropicAPIKey string `mapstructure:"anthropic_api_key"`
+	LLMModel        string `mapstructure:"llm_model"`
 }
 
 // defaults
@@ -62,6 +64,8 @@ func Load(cmd *cobra.Command) (*Config, error) {
 	viper.SetDefault("offline", false)
 	viper.SetDefault("rcon_port", DefaultRCONPort)
 	viper.SetDefault("rcon_password", "")
+	viper.SetDefault("anthropic_api_key", "")
+	viper.SetDefault("llm_model", "")
 
 	// Env vars: CLANKERCRAFT_HOST, CLANKERCRAFT_PORT, etc.
 	viper.SetEnvPrefix("CLANKERCRAFT")
@@ -91,6 +95,11 @@ func Load(cmd *cobra.Command) (*Config, error) {
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+
+	// Support standard ANTHROPIC_API_KEY env var (SDK convention) as fallback.
+	if cfg.AnthropicAPIKey == "" {
+		cfg.AnthropicAPIKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
 
 	return &cfg, nil

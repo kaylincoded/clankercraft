@@ -12,6 +12,7 @@ import (
 
 	"github.com/kaylincoded/clankercraft/internal/config"
 	"github.com/kaylincoded/clankercraft/internal/connection"
+	"github.com/kaylincoded/clankercraft/internal/llm"
 	cclog "github.com/kaylincoded/clankercraft/internal/log"
 	"github.com/kaylincoded/clankercraft/internal/mcp"
 	"github.com/kaylincoded/clankercraft/internal/rcon"
@@ -62,6 +63,20 @@ func run(cmd *cobra.Command, args []string) error {
 	// Connect RCON (optional — logs warning and continues on failure).
 	rconClient := rcon.New(cfg, logger)
 	rconClient.Connect(ctx)
+
+	// Initialize LLM provider (optional — nil means no LLM features).
+	var llmProvider llm.Provider
+	if cfg.AnthropicAPIKey != "" {
+		opts := []llm.ClaudeOption{}
+		if cfg.LLMModel != "" {
+			opts = append(opts, llm.WithModel(cfg.LLMModel))
+		}
+		llmProvider = llm.NewClaudeProvider(cfg.AnthropicAPIKey, opts...)
+		logger.Info("LLM provider initialized", slog.String("model", "claude"))
+	} else {
+		logger.Warn("ANTHROPIC_API_KEY not set — LLM features disabled")
+	}
+	_ = llmProvider // will be wired into agent loop in Story 5.4
 
 	// Start MC connection and MCP server concurrently.
 	// errgroup cancels gctx on first error, so a broken MCP transport
