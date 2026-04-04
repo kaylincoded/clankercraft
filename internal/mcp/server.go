@@ -264,6 +264,12 @@ type weFlipInput struct {
 	Direction string `json:"direction,omitempty" jsonschema:"flip direction: north, south, east, west, up, down (default: player facing)"`
 }
 
+// weUndoInput is the input schema for the we-undo tool (no arguments).
+type weUndoInput struct{}
+
+// weRedoInput is the input schema for the we-redo tool (no arguments).
+type weRedoInput struct{}
+
 // scanAreaInput is the input schema for the scan-area tool.
 type scanAreaInput struct {
 	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
@@ -485,6 +491,18 @@ func (s *Server) registerTools() {
 		Name:        "we-flip",
 		Description: "Flip the clipboard contents using WorldEdit //flip (direction: north/south/east/west/up/down)",
 	}, requireWETier(s.conn, s.handleWEFlip))
+
+	// we-undo — requires WorldEdit tier (history-based, no selection needed)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-undo",
+		Description: "Undo the last WorldEdit operation using //undo",
+	}, requireWETier(s.conn, s.handleWEUndo))
+
+	// we-redo — requires WorldEdit tier (history-based, no selection needed)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-redo",
+		Description: "Redo the last undone WorldEdit operation using //redo",
+	}, requireWETier(s.conn, s.handleWERedo))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -943,6 +961,24 @@ func (s *Server) handleWEFlip(_ context.Context, _ *gomcp.CallToolRequest, input
 		return toolError(fmt.Sprintf("//%s failed: %v", cmd, err)), weCommandOutput{}, nil
 	}
 	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//%s: %s", cmd, resp)}, nil
+}
+
+// handleWEUndo undoes the last WorldEdit operation.
+func (s *Server) handleWEUndo(_ context.Context, _ *gomcp.CallToolRequest, _ weUndoInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	resp, err := s.conn.RunWECommand("undo")
+	if err != nil {
+		return toolError(fmt.Sprintf("//undo failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//undo: %s", resp)}, nil
+}
+
+// handleWERedo redoes the last undone WorldEdit operation.
+func (s *Server) handleWERedo(_ context.Context, _ *gomcp.CallToolRequest, _ weRedoInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	resp, err := s.conn.RunWECommand("redo")
+	if err != nil {
+		return toolError(fmt.Sprintf("//redo failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//redo: %s", resp)}, nil
 }
 
 // handleDetectGamemode returns the bot's current game mode.

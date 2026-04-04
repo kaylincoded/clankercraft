@@ -1991,6 +1991,114 @@ func TestWEFlipRejectsDisconnected(t *testing.T) {
 	}
 }
 
+// --- WorldEdit undo/redo tool tests ---
+
+func TestWEUndoSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-undo",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-undo): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-undo returned error: %v", result.Content)
+	}
+	if *cmd != "undo" {
+		t.Errorf("command = %q, want %q", *cmd, "undo")
+	}
+}
+
+func TestWERedoSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-redo",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-redo): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-redo returned error: %v", result.Content)
+	}
+	if *cmd != "redo" {
+		t.Errorf("command = %q, want %q", *cmd, "redo")
+	}
+}
+
+func TestWEUndoWorksWithoutSelection(t *testing.T) {
+	session := testSession(t, weTierMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-undo",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-undo): %v", err)
+	}
+	if result.IsError {
+		t.Error("we-undo should work without selection (history-based)")
+	}
+}
+
+func TestWEUndoRejectsVanilla(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: true, tier: engine.TierVanilla})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-undo",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-undo): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-undo should return error when tier is vanilla")
+	}
+}
+
+func TestWEUndoRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-undo",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-undo): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-undo should return error when disconnected")
+	}
+}
+
+func TestWERedoRejectsVanilla(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: true, tier: engine.TierVanilla})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-redo",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-redo): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-redo should return error when tier is vanilla")
+	}
+}
+
+func TestWERedoRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-redo",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-redo): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-redo should return error when disconnected")
+	}
+}
+
 func TestServerRunCancellation(t *testing.T) {
 	srv := New("test-version", testLogger(), &mockBotState{})
 
