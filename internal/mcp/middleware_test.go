@@ -99,6 +99,44 @@ func (m *mockBotState) RunWECommand(command string) (string, error) {
 	return "0 block(s) have been changed.", nil
 }
 
+func TestRequireWETierAllowsWithoutSelection(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+	}
+	called := false
+	handler := requireWETier(mock, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		called = true
+		return nil, pingOutput{Status: "ok"}, nil
+	})
+
+	_, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("handler was not called")
+	}
+}
+
+func TestRequireWETierRejectsVanilla(t *testing.T) {
+	mock := &mockBotState{connected: true, tier: engine.TierVanilla}
+	handler := requireWETier(mock, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		t.Fatal("handler should not be called")
+		return nil, pingOutput{}, nil
+	})
+
+	result, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true for vanilla tier")
+	}
+}
+
 func TestRequireWorldEditAllowsReady(t *testing.T) {
 	mock := &mockBotState{
 		connected: true,

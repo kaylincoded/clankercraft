@@ -206,6 +206,33 @@ type weCommandOutput struct {
 	Message  string `json:"message"`
 }
 
+// weSphereInput is the input schema for the we-sphere tool.
+type weSphereInput struct {
+	Pattern string `json:"pattern" jsonschema:"block pattern, e.g. stone"`
+	Radius  int    `json:"radius" jsonschema:"sphere radius in blocks"`
+	Hollow  bool   `json:"hollow,omitempty" jsonschema:"if true, creates a hollow sphere (//hsphere)"`
+}
+
+// weCylInput is the input schema for the we-cyl tool.
+type weCylInput struct {
+	Pattern string `json:"pattern" jsonschema:"block pattern, e.g. stone"`
+	Radius  int    `json:"radius" jsonschema:"cylinder radius in blocks"`
+	Height  int    `json:"height,omitempty" jsonschema:"cylinder height (default 1)"`
+	Hollow  bool   `json:"hollow,omitempty" jsonschema:"if true, creates a hollow cylinder (//hcyl)"`
+}
+
+// wePyramidInput is the input schema for the we-pyramid tool.
+type wePyramidInput struct {
+	Pattern string `json:"pattern" jsonschema:"block pattern, e.g. stone"`
+	Size    int    `json:"size" jsonschema:"pyramid size (base half-width)"`
+	Hollow  bool   `json:"hollow,omitempty" jsonschema:"if true, creates a hollow pyramid (//hpyramid)"`
+}
+
+// weGenerateInput is the input schema for the we-generate tool.
+type weGenerateInput struct {
+	Expression string `json:"expression" jsonschema:"mathematical expression, e.g. (x*x + z*z < 100) * stone"`
+}
+
 // scanAreaInput is the input schema for the scan-area tool.
 type scanAreaInput struct {
 	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
@@ -361,6 +388,30 @@ func (s *Server) registerTools() {
 		Name:        "we-hollow",
 		Description: "Hollow out the current selection using WorldEdit //hollow, optionally filling the shell with a pattern",
 	}, requireWorldEdit(s.conn, s.handleWEHollow))
+
+	// we-sphere — requires WorldEdit tier (position-based, no selection)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-sphere",
+		Description: "Create a sphere at the bot's position using WorldEdit //sphere (set hollow=true for //hsphere)",
+	}, requireWETier(s.conn, s.handleWESphere))
+
+	// we-cyl — requires WorldEdit tier (position-based, no selection)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-cyl",
+		Description: "Create a cylinder at the bot's position using WorldEdit //cyl (set hollow=true for //hcyl)",
+	}, requireWETier(s.conn, s.handleWECyl))
+
+	// we-pyramid — requires WorldEdit tier (position-based, no selection)
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-pyramid",
+		Description: "Create a pyramid at the bot's position using WorldEdit //pyramid (set hollow=true for //hpyramid)",
+	}, requireWETier(s.conn, s.handleWEPyramid))
+
+	// we-generate — requires WorldEdit + selection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-generate",
+		Description: "Generate blocks from a mathematical expression in the current selection using WorldEdit //generate",
+	}, requireWorldEdit(s.conn, s.handleWEGenerate))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -573,6 +624,19 @@ func validatePattern(pattern string) error {
 	return nil
 }
 
+// validateExpression checks that a //generate expression is safe (no command injection).
+func validateExpression(expr string) error {
+	if expr == "" {
+		return fmt.Errorf("expression cannot be empty")
+	}
+	for _, c := range expr {
+		if c == '\n' || c == '\r' || c == ';' || c == '/' {
+			return fmt.Errorf("expression contains invalid characters")
+		}
+	}
+	return nil
+}
+
 // handleWESet fills the selection with a block pattern.
 func (s *Server) handleWESet(_ context.Context, _ *gomcp.CallToolRequest, input weSetInput) (*gomcp.CallToolResult, weCommandOutput, error) {
 	if err := validatePattern(input.Pattern); err != nil {
@@ -638,6 +702,82 @@ func (s *Server) handleWEHollow(_ context.Context, _ *gomcp.CallToolRequest, inp
 		return toolError(fmt.Sprintf("//hollow failed: %v", err)), weCommandOutput{}, nil
 	}
 	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//%s: %s", cmd, resp)}, nil
+}
+
+// handleWESphere creates a sphere at the bot's position.
+func (s *Server) handleWESphere(_ context.Context, _ *gomcp.CallToolRequest, input weSphereInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	if err := validatePattern(input.Pattern); err != nil {
+		return toolError(err.Error()), weCommandOutput{}, nil
+	}
+	if input.Radius <= 0 {
+		return toolError("radius must be a positive integer"), weCommandOutput{}, nil
+	}
+	cmd := "sphere"
+	if input.Hollow {
+		cmd = "hsphere"
+	}
+	cmd += fmt.Sprintf(" %s %d", input.Pattern, input.Radius)
+	resp, err := s.conn.RunWECommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("//%s failed: %v", cmd, err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//%s: %s", cmd, resp)}, nil
+}
+
+// handleWECyl creates a cylinder at the bot's position.
+func (s *Server) handleWECyl(_ context.Context, _ *gomcp.CallToolRequest, input weCylInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	if err := validatePattern(input.Pattern); err != nil {
+		return toolError(err.Error()), weCommandOutput{}, nil
+	}
+	if input.Radius <= 0 {
+		return toolError("radius must be a positive integer"), weCommandOutput{}, nil
+	}
+	cmd := "cyl"
+	if input.Hollow {
+		cmd = "hcyl"
+	}
+	cmd += fmt.Sprintf(" %s %d", input.Pattern, input.Radius)
+	if input.Height > 0 {
+		cmd += fmt.Sprintf(" %d", input.Height)
+	}
+	resp, err := s.conn.RunWECommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("//%s failed: %v", cmd, err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//%s: %s", cmd, resp)}, nil
+}
+
+// handleWEPyramid creates a pyramid at the bot's position.
+func (s *Server) handleWEPyramid(_ context.Context, _ *gomcp.CallToolRequest, input wePyramidInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	if err := validatePattern(input.Pattern); err != nil {
+		return toolError(err.Error()), weCommandOutput{}, nil
+	}
+	if input.Size <= 0 {
+		return toolError("size must be a positive integer"), weCommandOutput{}, nil
+	}
+	cmd := "pyramid"
+	if input.Hollow {
+		cmd = "hpyramid"
+	}
+	cmd += fmt.Sprintf(" %s %d", input.Pattern, input.Size)
+	resp, err := s.conn.RunWECommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("//%s failed: %v", cmd, err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//%s: %s", cmd, resp)}, nil
+}
+
+// handleWEGenerate generates blocks from a mathematical expression in the selection.
+func (s *Server) handleWEGenerate(_ context.Context, _ *gomcp.CallToolRequest, input weGenerateInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	if err := validateExpression(input.Expression); err != nil {
+		return toolError(err.Error()), weCommandOutput{}, nil
+	}
+	cmd := "generate " + input.Expression
+	resp, err := s.conn.RunWECommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("//generate failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//generate: %s", resp)}, nil
 }
 
 // handleDetectGamemode returns the bot's current game mode.

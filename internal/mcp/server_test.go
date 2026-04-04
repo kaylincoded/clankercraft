@@ -1078,6 +1078,364 @@ func TestWEToolRejectsDisconnected(t *testing.T) {
 	}
 }
 
+// --- WorldEdit generation tool tests ---
+
+// weTierMock creates a mock with WorldEdit tier but NO selection (for position-based commands).
+func weTierMock() *mockBotState {
+	return &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+		runWECommandFn: func(command string) (string, error) {
+			return "42 block(s) have been changed.", nil
+		},
+	}
+}
+
+func weTierCaptureMock() (*mockBotState, *string) {
+	var capturedCmd string
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+		runWECommandFn: func(command string) (string, error) {
+			capturedCmd = command
+			return "42 block(s) have been changed.", nil
+		},
+	}
+	return mock, &capturedCmd
+}
+
+func TestWESphereSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-sphere",
+		Arguments: map[string]any{"pattern": "stone", "radius": 10},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-sphere): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-sphere returned error: %v", result.Content)
+	}
+	if *cmd != "sphere stone 10" {
+		t.Errorf("command = %q, want %q", *cmd, "sphere stone 10")
+	}
+}
+
+func TestWEHSphereSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-sphere",
+		Arguments: map[string]any{"pattern": "glass", "radius": 5, "hollow": true},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-sphere hollow): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-sphere hollow returned error: %v", result.Content)
+	}
+	if *cmd != "hsphere glass 5" {
+		t.Errorf("command = %q, want %q", *cmd, "hsphere glass 5")
+	}
+}
+
+func TestWECylSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-cyl",
+		Arguments: map[string]any{"pattern": "stone", "radius": 5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-cyl): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-cyl returned error: %v", result.Content)
+	}
+	if *cmd != "cyl stone 5" {
+		t.Errorf("command = %q, want %q", *cmd, "cyl stone 5")
+	}
+}
+
+func TestWECylWithHeightSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-cyl",
+		Arguments: map[string]any{"pattern": "stone", "radius": 5, "height": 10},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-cyl height): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-cyl height returned error: %v", result.Content)
+	}
+	if *cmd != "cyl stone 5 10" {
+		t.Errorf("command = %q, want %q", *cmd, "cyl stone 5 10")
+	}
+}
+
+func TestWEHCylSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-cyl",
+		Arguments: map[string]any{"pattern": "glass", "radius": 3, "height": 8, "hollow": true},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-cyl hollow): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-cyl hollow returned error: %v", result.Content)
+	}
+	if *cmd != "hcyl glass 3 8" {
+		t.Errorf("command = %q, want %q", *cmd, "hcyl glass 3 8")
+	}
+}
+
+func TestWEPyramidSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-pyramid",
+		Arguments: map[string]any{"pattern": "sandstone", "size": 5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-pyramid): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-pyramid returned error: %v", result.Content)
+	}
+	if *cmd != "pyramid sandstone 5" {
+		t.Errorf("command = %q, want %q", *cmd, "pyramid sandstone 5")
+	}
+}
+
+func TestWEHPyramidSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weTierCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-pyramid",
+		Arguments: map[string]any{"pattern": "glass", "size": 7, "hollow": true},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-pyramid hollow): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-pyramid hollow returned error: %v", result.Content)
+	}
+	if *cmd != "hpyramid glass 7" {
+		t.Errorf("command = %q, want %q", *cmd, "hpyramid glass 7")
+	}
+}
+
+func TestWEGenerateSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-generate",
+		Arguments: map[string]any{"expression": "(x*x + z*z < 100) * stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-generate): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-generate returned error: %v", result.Content)
+	}
+	if *cmd != "generate (x*x + z*z < 100) * stone" {
+		t.Errorf("command = %q, want %q", *cmd, "generate (x*x + z*z < 100) * stone")
+	}
+}
+
+func TestWEGenerateRequiresSelection(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-generate",
+		Arguments: map[string]any{"expression": "x*x + z*z < 100"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-generate): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-generate should return error when no selection set")
+	}
+}
+
+func TestWESphereWorksWithoutSelection(t *testing.T) {
+	session := testSession(t, weTierMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-sphere",
+		Arguments: map[string]any{"pattern": "stone", "radius": 5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-sphere): %v", err)
+	}
+	if result.IsError {
+		t.Error("we-sphere should work without selection (position-based)")
+	}
+}
+
+func TestWESphereRejectsVanilla(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-sphere",
+		Arguments: map[string]any{"pattern": "stone", "radius": 5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-sphere): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-sphere should return error when tier is vanilla")
+	}
+}
+
+func TestWESphereRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-sphere",
+		Arguments: map[string]any{"pattern": "stone", "radius": 5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-sphere): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-sphere should return error when disconnected")
+	}
+}
+
+func TestWESphereRejectsInvalidPattern(t *testing.T) {
+	session := testSession(t, weTierMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-sphere",
+		Arguments: map[string]any{"pattern": "stone\n/op hacker", "radius": 5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-sphere): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-sphere should reject patterns with newlines")
+	}
+}
+
+func TestWEGenerateRejectsNewlineExpression(t *testing.T) {
+	mock := weConnectedMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-generate",
+		Arguments: map[string]any{"expression": "x*x\n/op hacker"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-generate): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-generate should reject expressions with newlines")
+	}
+}
+
+func TestWEGenerateRejectsSemicolon(t *testing.T) {
+	mock := weConnectedMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-generate",
+		Arguments: map[string]any{"expression": "x*x ; /op hacker"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-generate): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-generate should reject expressions with semicolons")
+	}
+}
+
+func TestWEGenerateRejectsSlash(t *testing.T) {
+	mock := weConnectedMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-generate",
+		Arguments: map[string]any{"expression": "x*x /op hacker"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-generate): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-generate should reject expressions with slashes")
+	}
+}
+
+func TestWESphereRejectsZeroRadius(t *testing.T) {
+	session := testSession(t, weTierMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-sphere",
+		Arguments: map[string]any{"pattern": "stone", "radius": 0},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-sphere): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-sphere should reject zero radius")
+	}
+}
+
+func TestWECylRejectsNegativeRadius(t *testing.T) {
+	session := testSession(t, weTierMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-cyl",
+		Arguments: map[string]any{"pattern": "stone", "radius": -5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-cyl): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-cyl should reject negative radius")
+	}
+}
+
+func TestWEPyramidRejectsZeroSize(t *testing.T) {
+	session := testSession(t, weTierMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-pyramid",
+		Arguments: map[string]any{"pattern": "stone", "size": 0},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-pyramid): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-pyramid should reject zero size")
+	}
+}
+
 func TestServerRunCancellation(t *testing.T) {
 	srv := New("test-version", testLogger(), &mockBotState{})
 

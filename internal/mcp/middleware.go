@@ -33,6 +33,22 @@ type BotState interface {
 	RunWECommand(command string) (string, error)
 }
 
+// requireWETier wraps a handler with connection and WorldEdit tier checks (no selection required).
+// Use for position-based commands like //sphere, //cyl, //pyramid.
+func requireWETier[I, O any](bot BotState, handler gomcp.ToolHandlerFor[I, O]) gomcp.ToolHandlerFor[I, O] {
+	return func(ctx context.Context, req *gomcp.CallToolRequest, input I) (*gomcp.CallToolResult, O, error) {
+		var zero O
+		if !bot.IsConnected() {
+			return toolError("bot is not connected to a Minecraft server"), zero, nil
+		}
+		tier := bot.GetTier()
+		if tier != engine.TierWorldEdit && tier != engine.TierFAWE {
+			return toolError("WorldEdit is not available on this server (tier: " + tier.String() + ")"), zero, nil
+		}
+		return handler(ctx, req, input)
+	}
+}
+
 // requireWorldEdit wraps a handler with connection, WorldEdit tier, and selection checks.
 func requireWorldEdit[I, O any](bot BotState, handler gomcp.ToolHandlerFor[I, O]) gomcp.ToolHandlerFor[I, O] {
 	return func(ctx context.Context, req *gomcp.CallToolRequest, input I) (*gomcp.CallToolResult, O, error) {
