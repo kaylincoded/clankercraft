@@ -49,6 +49,8 @@ const (
 	MaxReconnectAttempts = 5
 	// MaxBackoff is the maximum backoff duration between reconnect attempts.
 	MaxBackoff = 30 * time.Second
+	// ShutdownTimeout is the max time to wait for the game loop goroutine to drain during Close().
+	ShutdownTimeout = 5 * time.Second
 )
 
 // AuthFunc is the function signature for MSA authentication.
@@ -64,20 +66,23 @@ type Connection struct {
 	msgMgr  *msg.Manager
 	plist   *playerlist.PlayerList
 
-	authFn        AuthFunc
-	connectAndRun func(ctx context.Context) error   // injectable for testing RunWithReconnect
-	backoffFn     func(attempt int) time.Duration    // injectable for testing backoff
+	authFn          AuthFunc
+	connectAndRun   func(ctx context.Context) error   // injectable for testing RunWithReconnect
+	backoffFn       func(attempt int) time.Duration    // injectable for testing backoff
+	shutdownTimeout time.Duration                      // injectable for testing Close drain
 
-	mu    sync.Mutex
-	state ConnState
+	mu     sync.Mutex
+	state  ConnState
+	doneCh chan struct{} // closed when HandleGame goroutine exits
 }
 
 // New creates a new Connection configured from the given config.
 func New(cfg *config.Config, logger *slog.Logger) *Connection {
 	return &Connection{
-		cfg:    cfg,
-		logger: logger,
-		authFn: Authenticate,
+		cfg:             cfg,
+		logger:          logger,
+		authFn:          Authenticate,
+		shutdownTimeout: ShutdownTimeout,
 	}
 }
 
@@ -168,8 +173,14 @@ func (c *Connection) HandleGame(ctx context.Context) error {
 		return fmt.Errorf("not connected")
 	}
 
+	doneCh := make(chan struct{})
+	c.mu.Lock()
+	c.doneCh = doneCh
+	c.mu.Unlock()
+
 	errCh := make(chan error, 1)
 	go func() {
+		defer close(doneCh)
 		errCh <- c.client.HandleGame()
 	}()
 
@@ -181,8 +192,7 @@ func (c *Connection) HandleGame(ctx context.Context) error {
 		}
 		return nil
 	case <-ctx.Done():
-		// Caller owns Close() — which will unblock the client.HandleGame goroutine.
-		// errCh is buffered so the goroutine won't leak.
+		// Caller owns Close() — which will close TCP and drain the goroutine.
 		return ctx.Err()
 	}
 }
@@ -257,16 +267,28 @@ func backoffDuration(attempt int) time.Duration {
 	return d
 }
 
-// Close disconnects from the server. Safe to call when not connected.
+// Close disconnects from the server and waits for the HandleGame goroutine
+// to drain (with timeout). Safe to call when not connected.
 func (c *Connection) Close() error {
 	c.mu.Lock()
 	c.state = StateDisconnected
 	client := c.client
+	doneCh := c.doneCh
 	c.mu.Unlock()
 
 	if client != nil && client.Conn != nil {
 		client.Conn.Close()
 	}
+
+	// Wait for HandleGame goroutine to finish
+	if doneCh != nil {
+		select {
+		case <-doneCh:
+		case <-time.After(c.shutdownTimeout):
+			c.logger.Warn("shutdown timeout waiting for game loop to exit")
+		}
+	}
+
 	return nil
 }
 

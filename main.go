@@ -50,7 +50,8 @@ func run(cmd *cobra.Command, args []string) error {
 		slog.String("rcon_password", cfg.MaskedRCONPassword()),
 	)
 
-	// Graceful shutdown via context
+	// Graceful shutdown via context — first signal cancels context,
+	// stop() restores default handler so second signal force-kills.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -58,7 +59,9 @@ func run(cmd *cobra.Command, args []string) error {
 	conn := connection.New(cfg, logger)
 	gameErr := conn.RunWithReconnect(ctx)
 
-	logger.Info("shutting down")
+	// Restore default signal handling so second Ctrl+C force-quits
+	stop()
+	logger.Info("shutting down, press Ctrl+C again to force quit")
 	conn.Close()
 
 	if gameErr != nil && gameErr != context.Canceled {

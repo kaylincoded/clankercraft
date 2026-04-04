@@ -149,7 +149,7 @@ func TestCloseBeforeConnect(t *testing.T) {
 	cfg := &config.Config{Host: "localhost", Port: 25565}
 	conn := New(cfg, testLogger())
 
-	// Close should be safe to call when not connected
+	// Close should be safe to call when not connected (no doneCh)
 	err := conn.Close()
 	if err != nil {
 		t.Errorf("Close() before Connect should not error, got: %v", err)
@@ -166,6 +166,63 @@ func TestCloseMultipleTimes(t *testing.T) {
 		if err != nil {
 			t.Errorf("Close() call %d should not error, got: %v", i+1, err)
 		}
+	}
+}
+
+func TestCloseDrainsGameLoopGoroutine(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	// Simulate a doneCh that closes quickly (goroutine finishes)
+	doneCh := make(chan struct{})
+	conn.mu.Lock()
+	conn.doneCh = doneCh
+	conn.mu.Unlock()
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		close(doneCh)
+	}()
+
+	start := time.Now()
+	err := conn.Close()
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Errorf("Close() returned error: %v", err)
+	}
+	// Should have waited for doneCh, not timed out
+	if elapsed >= ShutdownTimeout {
+		t.Errorf("Close() took %v, should have drained quickly", elapsed)
+	}
+}
+
+func TestCloseTimesOutOnStuckGoroutine(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+	conn.shutdownTimeout = 50 * time.Millisecond
+
+	// doneCh that never closes (simulates stuck goroutine)
+	doneCh := make(chan struct{})
+	conn.mu.Lock()
+	conn.doneCh = doneCh
+	conn.mu.Unlock()
+
+	start := time.Now()
+	conn.Close()
+	elapsed := time.Since(start)
+
+	if elapsed < 50*time.Millisecond {
+		t.Errorf("Close() returned in %v, should have waited at least 50ms", elapsed)
+	}
+	if elapsed > 1*time.Second {
+		t.Errorf("Close() took %v, should have timed out near 50ms", elapsed)
+	}
+}
+
+func TestShutdownTimeoutConstant(t *testing.T) {
+	if ShutdownTimeout != 5*time.Second {
+		t.Errorf("ShutdownTimeout = %v, want 5s", ShutdownTimeout)
 	}
 }
 
