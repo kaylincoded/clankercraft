@@ -8,9 +8,12 @@ import (
 	"os/signal"
 	"syscall"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/kaylincoded/clankercraft/internal/config"
 	"github.com/kaylincoded/clankercraft/internal/connection"
 	cclog "github.com/kaylincoded/clankercraft/internal/log"
+	"github.com/kaylincoded/clankercraft/internal/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -55,17 +58,25 @@ func run(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Connect to Minecraft server with auto-reconnect
+	// Start MC connection and MCP server concurrently.
+	// errgroup cancels gctx on first error, so a broken MCP transport
+	// tears down the MC connection (and vice versa).
 	conn := connection.New(cfg, logger)
-	gameErr := conn.RunWithReconnect(ctx)
+	mcpServer := mcp.New(version, logger, conn)
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return conn.RunWithReconnect(gctx) })
+	g.Go(func() error { return mcpServer.Run(gctx) })
+
+	err = g.Wait()
 
 	// Restore default signal handling so second Ctrl+C force-quits
 	stop()
 	logger.Info("shutting down, press Ctrl+C again to force quit")
 	conn.Close()
 
-	if gameErr != nil && gameErr != context.Canceled {
-		return gameErr
+	if err != nil && err != context.Canceled {
+		return err
 	}
 	return nil
 }
