@@ -46,7 +46,7 @@ development_status:
   epic-1: in-progress
   1-1-project-initialization-cli-scaffolding: done
   1-2-minecraft-connection-via-go-mc: done
-  1-3-msa-authentication: backlog
+  1-3-msa-authentication: done
   1-4-connection-state-machine-auto-reconnect: backlog
   1-5-graceful-shutdown: backlog
   1-6-configuration-layering: backlog

@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/Tnze/go-mc v1.20.3-0.20241224032005-539b4a3a7f03
+	github.com/maxsupermanhd/go-mc-ms-auth v0.0.0-20230820124717-22f4d907eac4
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 )

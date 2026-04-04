@@ -3,6 +3,7 @@ package connection
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -64,7 +65,10 @@ func TestOfflineModeAuthSetup(t *testing.T) {
 	conn := New(cfg, testLogger())
 
 	client := bot.NewClient()
-	conn.setupAuth(client)
+	err := conn.setupAuth(client)
+	if err != nil {
+		t.Fatalf("setupAuth() returned error: %v", err)
+	}
 
 	if client.Auth.Name != "OfflineBot" {
 		t.Errorf("Auth.Name = %q, want %q", client.Auth.Name, "OfflineBot")
@@ -90,16 +94,53 @@ func TestOnlineModeAuthSetup(t *testing.T) {
 	}
 	conn := New(cfg, testLogger())
 
-	client := bot.NewClient()
-	conn.setupAuth(client)
-
-	if client.Auth.Name != "OnlineBot" {
-		t.Errorf("Auth.Name = %q, want %q", client.Auth.Name, "OnlineBot")
+	// Inject mock auth function
+	conn.authFn = func(cfg *config.Config, logger *slog.Logger) (*bot.Auth, error) {
+		return &bot.Auth{
+			Name: "MSAPlayer",
+			UUID: "fake-uuid-1234",
+			AsTk: "fake-access-token",
+		}, nil
 	}
 
-	// Online mode should not set offline UUID
-	if client.Auth.UUID != "" {
-		t.Errorf("Auth.UUID = %q, want empty (no offline UUID for online mode)", client.Auth.UUID)
+	client := bot.NewClient()
+	err := conn.setupAuth(client)
+	if err != nil {
+		t.Fatalf("setupAuth() returned error: %v", err)
+	}
+
+	if client.Auth.Name != "MSAPlayer" {
+		t.Errorf("Auth.Name = %q, want %q", client.Auth.Name, "MSAPlayer")
+	}
+	if client.Auth.UUID != "fake-uuid-1234" {
+		t.Errorf("Auth.UUID = %q, want %q", client.Auth.UUID, "fake-uuid-1234")
+	}
+	if client.Auth.AsTk != "fake-access-token" {
+		t.Errorf("Auth.AsTk = %q, want %q", client.Auth.AsTk, "fake-access-token")
+	}
+}
+
+func TestOnlineModeAuthFailure(t *testing.T) {
+	cfg := &config.Config{
+		Host:     "localhost",
+		Port:     25565,
+		Username: "OnlineBot",
+		Offline:  false,
+	}
+	conn := New(cfg, testLogger())
+
+	// Inject failing auth function
+	conn.authFn = func(cfg *config.Config, logger *slog.Logger) (*bot.Auth, error) {
+		return nil, fmt.Errorf("no MC ownership")
+	}
+
+	client := bot.NewClient()
+	err := conn.setupAuth(client)
+	if err == nil {
+		t.Fatal("setupAuth() should return error when auth fails")
+	}
+	if client.Auth.AsTk != "" {
+		t.Error("Auth.AsTk should be empty after failed auth")
 	}
 }
 

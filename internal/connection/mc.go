@@ -17,6 +17,9 @@ import (
 	"github.com/kaylincoded/clankercraft/internal/config"
 )
 
+// AuthFunc is the function signature for MSA authentication.
+type AuthFunc func(cfg *config.Config, logger *slog.Logger) (*bot.Auth, error)
+
 // Connection manages the Minecraft server connection via go-mc.
 type Connection struct {
 	cfg    *config.Config
@@ -27,6 +30,8 @@ type Connection struct {
 	msgMgr  *msg.Manager
 	plist   *playerlist.PlayerList
 
+	authFn AuthFunc
+
 	mu        sync.Mutex
 	connected bool
 }
@@ -36,6 +41,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Connection {
 	return &Connection{
 		cfg:    cfg,
 		logger: logger,
+		authFn: Authenticate,
 	}
 }
 
@@ -45,22 +51,29 @@ func (c *Connection) Address() string {
 }
 
 // setupAuth configures authentication on the go-mc client.
-func (c *Connection) setupAuth(client *bot.Client) {
-	client.Auth.Name = c.cfg.Username
+func (c *Connection) setupAuth(client *bot.Client) error {
 	if c.cfg.Offline {
+		client.Auth.Name = c.cfg.Username
 		id := offline.NameToUUID(c.cfg.Username)
 		client.Auth.UUID = hex.EncodeToString(id[:])
 		c.logger.Info("connecting in offline mode", slog.String("username", c.cfg.Username))
-	} else {
-		// MSA auth token would be set here (Story 1.3)
-		c.logger.Info("connecting with auth", slog.String("username", c.cfg.Username))
+		return nil
 	}
+
+	auth, err := c.authFn(c.cfg, c.logger)
+	if err != nil {
+		return err
+	}
+	client.Auth = *auth
+	return nil
 }
 
 // Connect joins the Minecraft server. Blocks until login+configuration is complete or fails.
 func (c *Connection) Connect(ctx context.Context) error {
 	client := bot.NewClient()
-	c.setupAuth(client)
+	if err := c.setupAuth(client); err != nil {
+		return fmt.Errorf("authentication: %w", err)
+	}
 	c.client = client
 
 	// basic.Player — handles keepalive, spawn, teleport acceptance
