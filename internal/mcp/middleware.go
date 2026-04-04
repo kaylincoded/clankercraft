@@ -4,11 +4,20 @@ import (
 	"context"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/kaylincoded/clankercraft/internal/connection"
 )
 
 // ConnChecker abstracts the connection state check for testability.
 type ConnChecker interface {
 	IsConnected() bool
+}
+
+// BotState extends ConnChecker with game state access for tools that need
+// position data or the ability to send packets.
+type BotState interface {
+	ConnChecker
+	GetPosition() (connection.Position, bool)
+	SendRotation(yaw, pitch float32) error
 }
 
 // requireConnection wraps a typed tool handler with a connection check.

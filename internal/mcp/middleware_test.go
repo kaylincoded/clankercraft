@@ -5,14 +5,29 @@ import (
 	"testing"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/kaylincoded/clankercraft/internal/connection"
 )
 
-type mockConnChecker struct{ connected bool }
+// mockBotState satisfies both ConnChecker and BotState for testing.
+type mockBotState struct {
+	connected    bool
+	pos          connection.Position
+	hasPos       bool
+	lastYaw      float32
+	lastPitch    float32
+	sendRotErr   error
+}
 
-func (m *mockConnChecker) IsConnected() bool { return m.connected }
+func (m *mockBotState) IsConnected() bool { return m.connected }
+func (m *mockBotState) GetPosition() (connection.Position, bool) { return m.pos, m.hasPos }
+func (m *mockBotState) SendRotation(yaw, pitch float32) error {
+	m.lastYaw = yaw
+	m.lastPitch = pitch
+	return m.sendRotErr
+}
 
 func TestRequireConnectionRejectsDisconnected(t *testing.T) {
-	checker := &mockConnChecker{connected: false}
+	checker := &mockBotState{connected: false}
 	handler := requireConnection(checker, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
 		t.Fatal("handler should not be called when disconnected")
 		return nil, pingOutput{}, nil
@@ -41,7 +56,7 @@ func TestRequireConnectionRejectsDisconnected(t *testing.T) {
 }
 
 func TestRequireConnectionAllowsConnected(t *testing.T) {
-	checker := &mockConnChecker{connected: true}
+	checker := &mockBotState{connected: true}
 	called := false
 	handler := requireConnection(checker, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
 		called = true

@@ -14,6 +14,8 @@ import (
 	"github.com/Tnze/go-mc/bot/msg"
 	"github.com/Tnze/go-mc/bot/playerlist"
 	"github.com/Tnze/go-mc/chat"
+	"github.com/Tnze/go-mc/data/packetid"
+	pk "github.com/Tnze/go-mc/net/packet"
 	"github.com/Tnze/go-mc/offline"
 	"github.com/kaylincoded/clankercraft/internal/config"
 )
@@ -53,6 +55,12 @@ const (
 	ShutdownTimeout = 5 * time.Second
 )
 
+// Position holds the bot's tracked location and rotation.
+type Position struct {
+	X, Y, Z    float64
+	Yaw, Pitch float32
+}
+
 // AuthFunc is the function signature for MSA authentication.
 type AuthFunc func(cfg *config.Config, logger *slog.Logger) (*bot.Auth, error)
 
@@ -73,6 +81,8 @@ type Connection struct {
 
 	mu     sync.Mutex
 	state  ConnState
+	pos    Position
+	hasPos bool         // true after first position update from server
 	doneCh chan struct{} // closed when HandleGame goroutine exits
 }
 
@@ -129,8 +139,13 @@ func (c *Connection) Connect(ctx context.Context) error {
 		},
 		Disconnect: func(reason chat.Message) error {
 			c.setState(StateDisconnected)
+			c.resetPosition()
 			c.logger.Warn("disconnected by server", slog.String("reason", reason.String()))
 			return nil
+		},
+		Teleported: func(x, y, z float64, yaw, pitch float32, flags byte, teleportID int32) error {
+			c.updatePosition(x, y, z, yaw, pitch, flags)
+			return c.player.AcceptTeleportation(pk.VarInt(teleportID))
 		},
 	})
 
@@ -316,4 +331,87 @@ func (c *Connection) State() ConnState {
 // IsConnected returns true if the connection state is StateConnected.
 func (c *Connection) IsConnected() bool {
 	return c.State() == StateConnected
+}
+
+// GetPosition returns the bot's tracked position and whether it has been set.
+// Returns false if the server hasn't sent a position yet this session.
+func (c *Connection) GetPosition() (Position, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pos, c.hasPos
+}
+
+// SendRotation sends a rotation packet to the server and updates tracked rotation.
+func (c *Connection) SendRotation(yaw, pitch float32) error {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+
+	if client == nil || client.Conn == nil {
+		return fmt.Errorf("not connected")
+	}
+	if err := client.Conn.WritePacket(pk.Marshal(
+		packetid.ServerboundMovePlayerRot,
+		pk.Float(yaw),
+		pk.Float(pitch),
+		pk.Boolean(true), // onGround
+	)); err != nil {
+		return fmt.Errorf("sending rotation: %w", err)
+	}
+
+	c.mu.Lock()
+	c.pos.Yaw = yaw
+	c.pos.Pitch = pitch
+	c.mu.Unlock()
+	return nil
+}
+
+// updatePosition applies a server position update, handling relative vs absolute flags.
+// Flags bitfield: bit 0=X, 1=Y, 2=Z, 3=Yaw, 4=Pitch. If set, value is relative.
+func (c *Connection) updatePosition(x, y, z float64, yaw, pitch float32, flags byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if flags&0x01 != 0 {
+		c.pos.X += x
+	} else {
+		c.pos.X = x
+	}
+	if flags&0x02 != 0 {
+		c.pos.Y += y
+	} else {
+		c.pos.Y = y
+	}
+	if flags&0x04 != 0 {
+		c.pos.Z += z
+	} else {
+		c.pos.Z = z
+	}
+	if flags&0x08 != 0 {
+		c.pos.Yaw += yaw
+	} else {
+		c.pos.Yaw = yaw
+	}
+	if flags&0x10 != 0 {
+		c.pos.Pitch += pitch
+	} else {
+		c.pos.Pitch = pitch
+	}
+	c.hasPos = true
+
+	c.logger.Debug("position updated",
+		slog.Float64("x", c.pos.X),
+		slog.Float64("y", c.pos.Y),
+		slog.Float64("z", c.pos.Z),
+		slog.Any("yaw", c.pos.Yaw),
+		slog.Any("pitch", c.pos.Pitch),
+	)
+}
+
+// resetPosition clears the tracked position (called on disconnect).
+func (c *Connection) resetPosition() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pos = Position{}
+	c.hasPos = false
 }

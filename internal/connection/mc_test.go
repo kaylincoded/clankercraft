@@ -413,3 +413,93 @@ func TestRunWithReconnectResetsOnSuccess(t *testing.T) {
 		t.Errorf("calls = %d, want at least 7 (proving retry counter reset after success)", calls)
 	}
 }
+
+// --- Position tracking tests ---
+
+func TestGetPositionReturnsFalseBeforeUpdate(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	_, ok := conn.GetPosition()
+	if ok {
+		t.Error("GetPosition() should return false before any position update")
+	}
+}
+
+func TestUpdatePositionAbsolute(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	// flags=0 means all values are absolute
+	conn.updatePosition(100.5, 64.0, -200.3, 45.0, -10.0, 0)
+
+	pos, ok := conn.GetPosition()
+	if !ok {
+		t.Fatal("GetPosition() should return true after update")
+	}
+	if pos.X != 100.5 || pos.Y != 64.0 || pos.Z != -200.3 {
+		t.Errorf("position = (%v, %v, %v), want (100.5, 64, -200.3)", pos.X, pos.Y, pos.Z)
+	}
+	if pos.Yaw != 45.0 || pos.Pitch != -10.0 {
+		t.Errorf("rotation = (%v, %v), want (45, -10)", pos.Yaw, pos.Pitch)
+	}
+}
+
+func TestUpdatePositionRelative(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	// Set initial position
+	conn.updatePosition(100.0, 64.0, 200.0, 0.0, 0.0, 0)
+
+	// flags=0x1F means all values are relative
+	conn.updatePosition(10.0, 5.0, -10.0, 45.0, -5.0, 0x1F)
+
+	pos, _ := conn.GetPosition()
+	if pos.X != 110.0 || pos.Y != 69.0 || pos.Z != 190.0 {
+		t.Errorf("position = (%v, %v, %v), want (110, 69, 190)", pos.X, pos.Y, pos.Z)
+	}
+	if pos.Yaw != 45.0 || pos.Pitch != -5.0 {
+		t.Errorf("rotation = (%v, %v), want (45, -5)", pos.Yaw, pos.Pitch)
+	}
+}
+
+func TestUpdatePositionMixedFlags(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	// Set initial position
+	conn.updatePosition(100.0, 64.0, 200.0, 90.0, 0.0, 0)
+
+	// flags=0x01 means only X is relative, rest absolute
+	conn.updatePosition(10.0, 70.0, 300.0, 180.0, -30.0, 0x01)
+
+	pos, _ := conn.GetPosition()
+	if pos.X != 110.0 {
+		t.Errorf("X = %v, want 110 (relative)", pos.X)
+	}
+	if pos.Y != 70.0 {
+		t.Errorf("Y = %v, want 70 (absolute)", pos.Y)
+	}
+	if pos.Z != 300.0 {
+		t.Errorf("Z = %v, want 300 (absolute)", pos.Z)
+	}
+}
+
+func TestResetPositionOnDisconnect(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 25565}
+	conn := New(cfg, testLogger())
+
+	conn.updatePosition(100.0, 64.0, 200.0, 0.0, 0.0, 0)
+	_, ok := conn.GetPosition()
+	if !ok {
+		t.Fatal("position should be set")
+	}
+
+	conn.resetPosition()
+
+	_, ok = conn.GetPosition()
+	if ok {
+		t.Error("GetPosition() should return false after resetPosition")
+	}
+}

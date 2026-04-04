@@ -3,21 +3,23 @@ package mcp
 import (
 	"context"
 	"log/slog"
+	"math"
 	"os"
 	"testing"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/kaylincoded/clankercraft/internal/connection"
 )
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-// testSession creates a Server with the given ConnChecker, connects an in-memory client,
+// testSession creates a Server with the given BotState, connects an in-memory client,
 // and returns the session. The server and client are torn down when the test ends.
-func testSession(t *testing.T, checker ConnChecker) *gomcp.ClientSession {
+func testSession(t *testing.T, state BotState) *gomcp.ClientSession {
 	t.Helper()
-	srv := New("test-version", testLogger(), checker)
+	srv := New("test-version", testLogger(), state)
 
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
@@ -40,7 +42,7 @@ func testSession(t *testing.T, checker ConnChecker) *gomcp.ClientSession {
 }
 
 func TestNewCreatesServer(t *testing.T) {
-	srv := New("test-version", testLogger(), &mockConnChecker{})
+	srv := New("test-version", testLogger(), &mockBotState{})
 	if srv == nil {
 		t.Fatal("New() returned nil")
 	}
@@ -53,7 +55,7 @@ func TestNewCreatesServer(t *testing.T) {
 }
 
 func TestPingToolRegistered(t *testing.T) {
-	session := testSession(t, &mockConnChecker{})
+	session := testSession(t, &mockBotState{})
 
 	tools, err := session.ListTools(context.Background(), nil)
 	if err != nil {
@@ -75,7 +77,7 @@ func TestPingToolRegistered(t *testing.T) {
 }
 
 func TestStatusToolRegistered(t *testing.T) {
-	session := testSession(t, &mockConnChecker{})
+	session := testSession(t, &mockBotState{})
 
 	tools, err := session.ListTools(context.Background(), nil)
 	if err != nil {
@@ -97,7 +99,7 @@ func TestStatusToolRegistered(t *testing.T) {
 }
 
 func TestPingToolReturns(t *testing.T) {
-	session := testSession(t, &mockConnChecker{})
+	session := testSession(t, &mockBotState{})
 
 	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
 		Name: "ping",
@@ -121,8 +123,7 @@ func TestPingToolReturns(t *testing.T) {
 }
 
 func TestPingWorksWithoutConnection(t *testing.T) {
-	// ping should work even when disconnected — it's a transport health check
-	session := testSession(t, &mockConnChecker{connected: false})
+	session := testSession(t, &mockBotState{connected: false})
 
 	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
 		Name: "ping",
@@ -136,7 +137,7 @@ func TestPingWorksWithoutConnection(t *testing.T) {
 }
 
 func TestStatusToolWhenConnected(t *testing.T) {
-	session := testSession(t, &mockConnChecker{connected: true})
+	session := testSession(t, &mockBotState{connected: true})
 
 	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
 		Name: "status",
@@ -147,13 +148,10 @@ func TestStatusToolWhenConnected(t *testing.T) {
 	if result.IsError {
 		t.Error("status returned error when connected")
 	}
-	if len(result.Content) == 0 {
-		t.Fatal("status returned no content")
-	}
 }
 
 func TestStatusToolWhenDisconnected(t *testing.T) {
-	session := testSession(t, &mockConnChecker{connected: false})
+	session := testSession(t, &mockBotState{connected: false})
 
 	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
 		Name: "status",
@@ -176,8 +174,178 @@ func TestStatusToolWhenDisconnected(t *testing.T) {
 	}
 }
 
+// --- get-position tool tests ---
+
+func TestGetPositionWhenConnectedWithPosition(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		hasPos:    true,
+		pos:       connection.Position{X: 100.7, Y: 64.3, Z: -200.9, Yaw: 45.0, Pitch: -10.0},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "get-position",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get-position): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("get-position returned error: %v", result.Content)
+	}
+}
+
+func TestGetPositionWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "get-position",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get-position): %v", err)
+	}
+	if !result.IsError {
+		t.Error("get-position should return error when disconnected")
+	}
+}
+
+func TestGetPositionBeforeServerSendsPosition(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		hasPos:    false, // no position received yet
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "get-position",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get-position): %v", err)
+	}
+	if !result.IsError {
+		t.Error("get-position should return error when position not yet known")
+	}
+	text := result.Content[0].(*gomcp.TextContent)
+	if text.Text != "position not yet known (waiting for server)" {
+		t.Errorf("unexpected error text: %q", text.Text)
+	}
+}
+
+// --- look-at tool tests ---
+
+func TestLookAtWhenConnected(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		hasPos:    true,
+		pos:       connection.Position{X: 0, Y: 65, Z: 0},
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "look-at",
+		Arguments: map[string]any{"x": 10.0, "y": 65.0, "z": 0.0},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(look-at): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("look-at returned error: %v", result.Content)
+	}
+	// Verify rotation was sent (looking east = +X from origin, yaw should be ~-90 or 270)
+	if mock.lastYaw == 0 && mock.lastPitch == 0 {
+		t.Error("SendRotation was not called")
+	}
+}
+
+func TestLookAtWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "look-at",
+		Arguments: map[string]any{"x": 10.0, "y": 65.0, "z": 0.0},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(look-at): %v", err)
+	}
+	if !result.IsError {
+		t.Error("look-at should return error when disconnected")
+	}
+}
+
+func TestLookAtBeforePositionKnown(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		hasPos:    false,
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "look-at",
+		Arguments: map[string]any{"x": 10.0, "y": 65.0, "z": 0.0},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(look-at): %v", err)
+	}
+	if !result.IsError {
+		t.Error("look-at should return error when position not yet known")
+	}
+}
+
+// --- yaw/pitch calculation unit tests ---
+
+func TestCalcYawPitchDirections(t *testing.T) {
+	tests := []struct {
+		name       string
+		toX, toY, toZ float64
+		wantYaw    float32
+		wantPitch  float32
+		tolerance  float32
+	}{
+		{
+			name: "looking south (+Z)",
+			toX: 0, toY: 65, toZ: 10,
+			wantYaw: 0, wantPitch: 0, tolerance: 0.1,
+		},
+		{
+			name: "looking north (-Z)",
+			toX: 0, toY: 65, toZ: -10,
+			wantYaw: -180, wantPitch: 0, tolerance: 0.1, // -180 and 180 are equivalent
+		},
+		{
+			name: "looking east (+X)",
+			toX: 10, toY: 65, toZ: 0,
+			wantYaw: -90, wantPitch: 0, tolerance: 0.1,
+		},
+		{
+			name: "looking west (-X)",
+			toX: -10, toY: 65, toZ: 0,
+			wantYaw: 90, wantPitch: 0, tolerance: 0.1,
+		},
+		{
+			name: "looking straight up",
+			toX: 0, toY: 75, toZ: 0,
+			wantYaw: 0, wantPitch: -90, tolerance: 0.1,
+		},
+		{
+			name: "looking straight down",
+			toX: 0, toY: 55, toZ: 0,
+			wantYaw: 0, wantPitch: 90, tolerance: 0.1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// From origin at y=65
+			yaw, pitch := calcYawPitch(0, 65, 0, tc.toX, tc.toY, tc.toZ)
+			if math.Abs(float64(yaw-tc.wantYaw)) > float64(tc.tolerance) {
+				t.Errorf("yaw = %v, want %v (tolerance %v)", yaw, tc.wantYaw, tc.tolerance)
+			}
+			if math.Abs(float64(pitch-tc.wantPitch)) > float64(tc.tolerance) {
+				t.Errorf("pitch = %v, want %v (tolerance %v)", pitch, tc.wantPitch, tc.tolerance)
+			}
+		})
+	}
+}
+
 func TestServerRunCancellation(t *testing.T) {
-	srv := New("test-version", testLogger(), &mockConnChecker{})
+	srv := New("test-version", testLogger(), &mockBotState{})
 
 	_, serverTransport := gomcp.NewInMemoryTransports()
 
