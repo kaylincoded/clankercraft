@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"regexp"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// validPatternRe matches valid WorldEdit block patterns (letters, digits, underscores, colons, commas, percentages, etc.).
+var validPatternRe = regexp.MustCompile(`^[a-zA-Z0-9_:,%!^.\[\]]+$`)
 
 // Server wraps the MCP SDK server with clankercraft-specific configuration.
 type Server struct {
@@ -170,6 +174,38 @@ type getSelectionOutput struct {
 	Message string `json:"message"`
 }
 
+// weSetInput is the input schema for the we-set tool.
+type weSetInput struct {
+	Pattern string `json:"pattern" jsonschema:"block pattern, e.g. stone_bricks or 50%stone,50%cobblestone"`
+}
+
+// weReplaceInput is the input schema for the we-replace tool.
+type weReplaceInput struct {
+	From string `json:"from" jsonschema:"source block pattern to replace"`
+	To   string `json:"to" jsonschema:"target block pattern to replace with"`
+}
+
+// weWallsInput is the input schema for the we-walls tool.
+type weWallsInput struct {
+	Pattern string `json:"pattern" jsonschema:"block pattern for the walls"`
+}
+
+// weFacesInput is the input schema for the we-faces tool.
+type weFacesInput struct {
+	Pattern string `json:"pattern" jsonschema:"block pattern for all 6 faces"`
+}
+
+// weHollowInput is the input schema for the we-hollow tool.
+type weHollowInput struct {
+	Pattern string `json:"pattern,omitempty" jsonschema:"optional block pattern for the shell (default: existing blocks)"`
+}
+
+// weCommandOutput is the shared output schema for WorldEdit operation tools.
+type weCommandOutput struct {
+	Response string `json:"response"`
+	Message  string `json:"message"`
+}
+
 // scanAreaInput is the input schema for the scan-area tool.
 type scanAreaInput struct {
 	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
@@ -295,6 +331,36 @@ func (s *Server) registerTools() {
 		Name:        "detect-worldedit",
 		Description: "Get the server's WorldEdit capability tier (fawe, worldedit, vanilla, or unknown if still detecting)",
 	}, requireConnection(s.conn, s.handleDetectWorldedit))
+
+	// we-set — requires WorldEdit + selection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-set",
+		Description: "Fill the current selection with a block pattern using WorldEdit //set",
+	}, requireWorldEdit(s.conn, s.handleWESet))
+
+	// we-replace — requires WorldEdit + selection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-replace",
+		Description: "Replace blocks in the current selection using WorldEdit //replace",
+	}, requireWorldEdit(s.conn, s.handleWEReplace))
+
+	// we-walls — requires WorldEdit + selection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-walls",
+		Description: "Set only the walls (not floor/ceiling) of the current selection using WorldEdit //walls",
+	}, requireWorldEdit(s.conn, s.handleWEWalls))
+
+	// we-faces — requires WorldEdit + selection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-faces",
+		Description: "Set all 6 faces of the current selection using WorldEdit //faces",
+	}, requireWorldEdit(s.conn, s.handleWEFaces))
+
+	// we-hollow — requires WorldEdit + selection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-hollow",
+		Description: "Hollow out the current selection using WorldEdit //hollow, optionally filling the shell with a pattern",
+	}, requireWorldEdit(s.conn, s.handleWEHollow))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -494,6 +560,84 @@ func (s *Server) handleGetSelection(_ context.Context, _ *gomcp.CallToolRequest,
 		}, nil
 	}
 	return toolError("no selection set"), getSelectionOutput{}, nil
+}
+
+// validatePattern checks that a WorldEdit pattern is safe (no command injection).
+func validatePattern(pattern string) error {
+	if pattern == "" {
+		return fmt.Errorf("pattern cannot be empty")
+	}
+	if !validPatternRe.MatchString(pattern) {
+		return fmt.Errorf("invalid block pattern: %q", pattern)
+	}
+	return nil
+}
+
+// handleWESet fills the selection with a block pattern.
+func (s *Server) handleWESet(_ context.Context, _ *gomcp.CallToolRequest, input weSetInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	if err := validatePattern(input.Pattern); err != nil {
+		return toolError(err.Error()), weCommandOutput{}, nil
+	}
+	resp, err := s.conn.RunWECommand("set " + input.Pattern)
+	if err != nil {
+		return toolError(fmt.Sprintf("//set failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//set %s: %s", input.Pattern, resp)}, nil
+}
+
+// handleWEReplace replaces blocks in the selection.
+func (s *Server) handleWEReplace(_ context.Context, _ *gomcp.CallToolRequest, input weReplaceInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	if err := validatePattern(input.From); err != nil {
+		return toolError(fmt.Sprintf("invalid 'from' pattern: %v", err)), weCommandOutput{}, nil
+	}
+	if err := validatePattern(input.To); err != nil {
+		return toolError(fmt.Sprintf("invalid 'to' pattern: %v", err)), weCommandOutput{}, nil
+	}
+	resp, err := s.conn.RunWECommand("replace " + input.From + " " + input.To)
+	if err != nil {
+		return toolError(fmt.Sprintf("//replace failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//replace %s %s: %s", input.From, input.To, resp)}, nil
+}
+
+// handleWEWalls sets the walls of the selection.
+func (s *Server) handleWEWalls(_ context.Context, _ *gomcp.CallToolRequest, input weWallsInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	if err := validatePattern(input.Pattern); err != nil {
+		return toolError(err.Error()), weCommandOutput{}, nil
+	}
+	resp, err := s.conn.RunWECommand("walls " + input.Pattern)
+	if err != nil {
+		return toolError(fmt.Sprintf("//walls failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//walls %s: %s", input.Pattern, resp)}, nil
+}
+
+// handleWEFaces sets all 6 faces of the selection.
+func (s *Server) handleWEFaces(_ context.Context, _ *gomcp.CallToolRequest, input weFacesInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	if err := validatePattern(input.Pattern); err != nil {
+		return toolError(err.Error()), weCommandOutput{}, nil
+	}
+	resp, err := s.conn.RunWECommand("faces " + input.Pattern)
+	if err != nil {
+		return toolError(fmt.Sprintf("//faces failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//faces %s: %s", input.Pattern, resp)}, nil
+}
+
+// handleWEHollow hollows out the selection.
+func (s *Server) handleWEHollow(_ context.Context, _ *gomcp.CallToolRequest, input weHollowInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	cmd := "hollow"
+	if input.Pattern != "" {
+		if err := validatePattern(input.Pattern); err != nil {
+			return toolError(err.Error()), weCommandOutput{}, nil
+		}
+		cmd += " " + input.Pattern
+	}
+	resp, err := s.conn.RunWECommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("//hollow failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//%s: %s", cmd, resp)}, nil
 }
 
 // handleDetectGamemode returns the bot's current game mode.

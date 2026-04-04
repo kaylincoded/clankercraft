@@ -25,10 +25,11 @@ type mockBotState struct {
 	findSignsFn  func(maxDist int) ([]connection.SignInfo, error)
 	gamemode       string
 	tier           engine.Tier
-	setSelectionFn func(x1, y1, z1, x2, y2, z2 int) error
-	selection      engine.Selection
-	hasPos1        bool
-	hasPos2        bool
+	setSelectionFn  func(x1, y1, z1, x2, y2, z2 int) error
+	selection       engine.Selection
+	hasPos1         bool
+	hasPos2         bool
+	runWECommandFn  func(command string) (string, error)
 }
 
 func (m *mockBotState) IsConnected() bool { return m.connected }
@@ -91,6 +92,77 @@ func (m *mockBotState) GetSelection() (engine.Selection, bool) {
 }
 func (m *mockBotState) HasPos1() bool { return m.hasPos1 }
 func (m *mockBotState) HasPos2() bool { return m.hasPos2 }
+func (m *mockBotState) RunWECommand(command string) (string, error) {
+	if m.runWECommandFn != nil {
+		return m.runWECommandFn(command)
+	}
+	return "0 block(s) have been changed.", nil
+}
+
+func TestRequireWorldEditAllowsReady(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection: engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+	}
+	called := false
+	handler := requireWorldEdit(mock, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		called = true
+		return nil, pingOutput{Status: "ok"}, nil
+	})
+
+	_, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("handler was not called")
+	}
+}
+
+func TestRequireWorldEditRejectsVanilla(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		hasPos1:   true,
+		hasPos2:   true,
+	}
+	handler := requireWorldEdit(mock, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		t.Fatal("handler should not be called")
+		return nil, pingOutput{}, nil
+	})
+
+	result, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true for vanilla tier")
+	}
+}
+
+func TestRequireWorldEditRejectsNoSelection(t *testing.T) {
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+	}
+	handler := requireWorldEdit(mock, func(_ context.Context, _ *gomcp.CallToolRequest, _ pingInput) (*gomcp.CallToolResult, pingOutput, error) {
+		t.Fatal("handler should not be called")
+		return nil, pingOutput{}, nil
+	})
+
+	result, _, err := handler(context.Background(), nil, pingInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true for no selection")
+	}
+}
 
 func TestRequireConnectionRejectsDisconnected(t *testing.T) {
 	checker := &mockBotState{connected: false}

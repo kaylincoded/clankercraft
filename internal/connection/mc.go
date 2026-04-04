@@ -104,11 +104,19 @@ type chatListener struct {
 // DetectTimeout is how long to wait for a //version response before assuming vanilla.
 const DetectTimeout = 3 * time.Second
 
+// WECommandTimeout is how long to wait for a WorldEdit command response.
+const WECommandTimeout = 5 * time.Second
+
 // wandPos1Re matches WorldEdit "First position set to (x, y, z)" messages.
 var wandPos1Re = regexp.MustCompile(`First position set to \((-?\d+), (-?\d+), (-?\d+)\)`)
 
 // wandPos2Re matches WorldEdit "Second position set to (x, y, z)" messages.
 var wandPos2Re = regexp.MustCompile(`Second position set to \((-?\d+), (-?\d+), (-?\d+)\)`)
+
+// isWENoiseMessage returns true for chat messages that should be skipped when waiting for a WE command response.
+func isWENoiseMessage(msg string) bool {
+	return wandPos1Re.MatchString(msg) || wandPos2Re.MatchString(msg)
+}
 
 // AuthFunc is the function signature for MSA authentication.
 type AuthFunc func(cfg *config.Config, logger *slog.Logger) (*bot.Auth, error)
@@ -135,6 +143,7 @@ type Connection struct {
 	pos            Position
 	hasPos         bool             // true after first position update from server
 	doneCh         chan struct{}     // closed when HandleGame goroutine exits
+	weTimeout      time.Duration    // configurable WE command timeout (0 = default)
 	tier           engine.Tier      // detected WorldEdit capability tier
 	chatListeners  []chatListener   // one-shot system chat listeners
 	selection      engine.Selection // current WorldEdit selection
@@ -920,6 +929,36 @@ func (c *Connection) SendCommand(command string) error {
 		return fmt.Errorf("not connected")
 	}
 	return mgr.SendCommand(command)
+}
+
+// RunWECommand sends a WorldEdit command and waits for the server response.
+// The command should NOT include the leading // — e.g., RunWECommand("set stone")
+// sends //set stone. Returns the first relevant chat response or times out.
+func (c *Connection) RunWECommand(command string) (string, error) {
+	ch := c.listenChat()
+	defer c.unlistenChat(ch)
+
+	if err := c.SendCommand("/" + command); err != nil {
+		return "", fmt.Errorf("sending //%s: %w", command, err)
+	}
+
+	dur := WECommandTimeout
+	if c.weTimeout > 0 {
+		dur = c.weTimeout
+	}
+	timeout := time.After(dur)
+	for {
+		select {
+		case msg := <-ch:
+			// Skip known noise (wand selections, etc.)
+			if isWENoiseMessage(msg) {
+				continue
+			}
+			return msg, nil
+		case <-timeout:
+			return "", fmt.Errorf("no response from server within %s", WECommandTimeout)
+		}
+	}
 }
 
 // GetTier returns the detected WorldEdit capability tier.

@@ -30,6 +30,25 @@ type BotState interface {
 	GetSelection() (engine.Selection, bool)
 	HasPos1() bool
 	HasPos2() bool
+	RunWECommand(command string) (string, error)
+}
+
+// requireWorldEdit wraps a handler with connection, WorldEdit tier, and selection checks.
+func requireWorldEdit[I, O any](bot BotState, handler gomcp.ToolHandlerFor[I, O]) gomcp.ToolHandlerFor[I, O] {
+	return func(ctx context.Context, req *gomcp.CallToolRequest, input I) (*gomcp.CallToolResult, O, error) {
+		var zero O
+		if !bot.IsConnected() {
+			return toolError("bot is not connected to a Minecraft server"), zero, nil
+		}
+		tier := bot.GetTier()
+		if tier != engine.TierWorldEdit && tier != engine.TierFAWE {
+			return toolError("WorldEdit is not available on this server (tier: " + tier.String() + ")"), zero, nil
+		}
+		if _, ok := bot.GetSelection(); !ok {
+			return toolError("no selection set — use set-selection or wand to select a region first"), zero, nil
+		}
+		return handler(ctx, req, input)
+	}
 }
 
 // requireConnection wraps a typed tool handler with a connection check.

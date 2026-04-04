@@ -999,6 +999,84 @@ func TestSetSelectionSetsBothPosFlags(t *testing.T) {
 	}
 }
 
+// --- RunWECommand tests ---
+
+func TestRunWECommandSendsAndCapturesResponse(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	var sentCmd string
+	conn.sendCommandFn = func(cmd string) error {
+		sentCmd = cmd
+		// Simulate server response arriving shortly after
+		go func() {
+			time.Sleep(5 * time.Millisecond)
+			conn.dispatchChat("42 block(s) have been changed.")
+		}()
+		return nil
+	}
+
+	resp, err := conn.RunWECommand("set stone")
+	if err != nil {
+		t.Fatalf("RunWECommand() returned error: %v", err)
+	}
+	if sentCmd != "/set stone" {
+		t.Errorf("sent command = %q, want %q", sentCmd, "/set stone")
+	}
+	if resp != "42 block(s) have been changed." {
+		t.Errorf("response = %q, want %q", resp, "42 block(s) have been changed.")
+	}
+}
+
+func TestRunWECommandSkipsWandMessages(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	conn.sendCommandFn = func(cmd string) error {
+		go func() {
+			time.Sleep(5 * time.Millisecond)
+			conn.dispatchChat("First position set to (1, 2, 3).")
+			time.Sleep(5 * time.Millisecond)
+			conn.dispatchChat("15 block(s) have been changed.")
+		}()
+		return nil
+	}
+
+	resp, err := conn.RunWECommand("replace stone cobblestone")
+	if err != nil {
+		t.Fatalf("RunWECommand() returned error: %v", err)
+	}
+	if resp != "15 block(s) have been changed." {
+		t.Errorf("response = %q, want %q", resp, "15 block(s) have been changed.")
+	}
+}
+
+func TestRunWECommandTimesOut(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+	conn.weTimeout = 50 * time.Millisecond
+
+	conn.sendCommandFn = func(cmd string) error {
+		// Don't send any response — should timeout
+		return nil
+	}
+
+	_, err := conn.RunWECommand("set stone")
+	if err == nil {
+		t.Fatal("RunWECommand() should return error on timeout")
+	}
+}
+
+func TestRunWECommandSendError(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	conn.sendCommandFn = func(cmd string) error {
+		return fmt.Errorf("not connected")
+	}
+
+	_, err := conn.RunWECommand("set stone")
+	if err == nil {
+		t.Fatal("RunWECommand() should return error when SendCommand fails")
+	}
+}
+
 func TestGetGamemodeValues(t *testing.T) {
 	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
 	// No player set — should return "unknown"

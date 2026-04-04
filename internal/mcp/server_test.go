@@ -836,6 +836,248 @@ func TestDetectWorldeditWhenDisconnected(t *testing.T) {
 	}
 }
 
+// --- WorldEdit region operation tool tests ---
+
+func weConnectedMock() *mockBotState {
+	return &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection: engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+		runWECommandFn: func(command string) (string, error) {
+			return "42 block(s) have been changed.", nil
+		},
+	}
+}
+
+func weCommandCaptureMock() (*mockBotState, *string) {
+	var capturedCmd string
+	mock := &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection: engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+		runWECommandFn: func(command string) (string, error) {
+			capturedCmd = command
+			return "42 block(s) have been changed.", nil
+		},
+	}
+	return mock, &capturedCmd
+}
+
+func TestWESetSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-set",
+		Arguments: map[string]any{"pattern": "stone_bricks"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-set): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-set returned error: %v", result.Content)
+	}
+	if *cmd != "set stone_bricks" {
+		t.Errorf("command = %q, want %q", *cmd, "set stone_bricks")
+	}
+}
+
+func TestWEReplaceSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-replace",
+		Arguments: map[string]any{"from": "stone", "to": "cobblestone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-replace): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-replace returned error: %v", result.Content)
+	}
+	if *cmd != "replace stone cobblestone" {
+		t.Errorf("command = %q, want %q", *cmd, "replace stone cobblestone")
+	}
+}
+
+func TestWEWallsSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-walls",
+		Arguments: map[string]any{"pattern": "glass"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-walls): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-walls returned error: %v", result.Content)
+	}
+	if *cmd != "walls glass" {
+		t.Errorf("command = %q, want %q", *cmd, "walls glass")
+	}
+}
+
+func TestWEFacesSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-faces",
+		Arguments: map[string]any{"pattern": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-faces): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-faces returned error: %v", result.Content)
+	}
+	if *cmd != "faces stone" {
+		t.Errorf("command = %q, want %q", *cmd, "faces stone")
+	}
+}
+
+func TestWEHollowNoPattern(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-hollow",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-hollow): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-hollow returned error: %v", result.Content)
+	}
+	if *cmd != "hollow" {
+		t.Errorf("command = %q, want %q", *cmd, "hollow")
+	}
+}
+
+func TestWEHollowWithPattern(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-hollow",
+		Arguments: map[string]any{"pattern": "glass"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-hollow): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-hollow returned error: %v", result.Content)
+	}
+	if *cmd != "hollow glass" {
+		t.Errorf("command = %q, want %q", *cmd, "hollow glass")
+	}
+}
+
+func TestWEToolReturnsErrorFromRunWECommand(t *testing.T) {
+	mock := weConnectedMock()
+	mock.runWECommandFn = func(command string) (string, error) {
+		return "", fmt.Errorf("no response from server within 5s")
+	}
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-set",
+		Arguments: map[string]any{"pattern": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-set): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-set should return error when RunWECommand fails")
+	}
+}
+
+func TestWEToolRejectsInvalidPattern(t *testing.T) {
+	session := testSession(t, weConnectedMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-set",
+		Arguments: map[string]any{"pattern": "stone\n/op hacker"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-set): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-set should reject patterns with newlines")
+	}
+}
+
+func TestWEToolRejectsVanillaTier(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection: engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-set",
+		Arguments: map[string]any{"pattern": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-set): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-set should return error when tier is vanilla")
+	}
+	text := result.Content[0].(*gomcp.TextContent)
+	if text.Text != "WorldEdit is not available on this server (tier: vanilla)" {
+		t.Errorf("error text = %q", text.Text)
+	}
+}
+
+func TestWEToolRejectsNoSelection(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-set",
+		Arguments: map[string]any{"pattern": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-set): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-set should return error when no selection set")
+	}
+	text := result.Content[0].(*gomcp.TextContent)
+	if text.Text != "no selection set — use set-selection or wand to select a region first" {
+		t.Errorf("error text = %q", text.Text)
+	}
+}
+
+func TestWEToolRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-set",
+		Arguments: map[string]any{"pattern": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-set): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-set should return error when disconnected")
+	}
+}
+
 func TestServerRunCancellation(t *testing.T) {
 	srv := New("test-version", testLogger(), &mockBotState{})
 
