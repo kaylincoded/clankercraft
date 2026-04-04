@@ -1436,6 +1436,251 @@ func TestWEPyramidRejectsZeroSize(t *testing.T) {
 	}
 }
 
+// --- WorldEdit terrain operation tool tests ---
+
+func TestWESmoothSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-smooth",
+		Arguments: map[string]any{"iterations": 5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-smooth): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-smooth returned error: %v", result.Content)
+	}
+	if *cmd != "smooth 5" {
+		t.Errorf("command = %q, want %q", *cmd, "smooth 5")
+	}
+}
+
+func TestWESmoothDefaultsToOne(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-smooth",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-smooth): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-smooth returned error: %v", result.Content)
+	}
+	if *cmd != "smooth 1" {
+		t.Errorf("command = %q, want %q", *cmd, "smooth 1")
+	}
+}
+
+func TestWESmoothRejectsVanilla(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection: engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-smooth",
+		Arguments: map[string]any{"iterations": 3},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-smooth): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-smooth should return error when tier is vanilla")
+	}
+}
+
+func TestWESmoothRejectsNoSelection(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+		hasPos1:   false,
+		hasPos2:   false,
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-smooth",
+		Arguments: map[string]any{"iterations": 3},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-smooth): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-smooth should return error when no selection set")
+	}
+}
+
+func TestWESmoothRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-smooth",
+		Arguments: map[string]any{"iterations": 3},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-smooth): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-smooth should return error when disconnected")
+	}
+}
+
+func TestWENaturalizeSendsCorrectCommand(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-naturalize",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-naturalize): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-naturalize returned error: %v", result.Content)
+	}
+	if *cmd != "naturalize" {
+		t.Errorf("command = %q, want %q", *cmd, "naturalize")
+	}
+}
+
+func TestWENaturalizeRejectsVanilla(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection: engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-naturalize",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-naturalize): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-naturalize should return error when tier is vanilla")
+	}
+}
+
+func TestWENaturalizeRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "we-naturalize",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-naturalize): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-naturalize should return error when disconnected")
+	}
+}
+
+func TestWEOverlaySendsCorrectCommand(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-overlay",
+		Arguments: map[string]any{"pattern": "grass_block"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-overlay): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-overlay returned error: %v", result.Content)
+	}
+	if *cmd != "overlay grass_block" {
+		t.Errorf("command = %q, want %q", *cmd, "overlay grass_block")
+	}
+}
+
+func TestWEOverlayRejectsInvalidPattern(t *testing.T) {
+	session := testSession(t, weConnectedMock())
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-overlay",
+		Arguments: map[string]any{"pattern": "stone\n/op hacker"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-overlay): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-overlay should reject patterns with newlines")
+	}
+}
+
+func TestWEOverlayRejectsVanilla(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierVanilla,
+		hasPos1:   true,
+		hasPos2:   true,
+		selection: engine.Selection{X1: 0, Y1: 64, Z1: 0, X2: 10, Y2: 70, Z2: 10},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-overlay",
+		Arguments: map[string]any{"pattern": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-overlay): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-overlay should return error when tier is vanilla")
+	}
+}
+
+func TestWEOverlayRejectsDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-overlay",
+		Arguments: map[string]any{"pattern": "stone"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-overlay): %v", err)
+	}
+	if !result.IsError {
+		t.Error("we-overlay should return error when disconnected")
+	}
+}
+
+// --- Pattern syntax end-to-end tests ---
+
+func TestWESetWithWeightedPattern(t *testing.T) {
+	mock, cmd := weCommandCaptureMock()
+	session := testSession(t, mock)
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "we-set",
+		Arguments: map[string]any{"pattern": "50%stone,30%cobblestone,20%mossy_stone_bricks"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(we-set): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("we-set returned error: %v", result.Content)
+	}
+	if *cmd != "set 50%stone,30%cobblestone,20%mossy_stone_bricks" {
+		t.Errorf("command = %q, want %q", *cmd, "set 50%stone,30%cobblestone,20%mossy_stone_bricks")
+	}
+}
+
+func TestValidatePatternAcceptsWeightedDistribution(t *testing.T) {
+	err := validatePattern("50%stone,30%cobblestone,20%mossy_stone_bricks")
+	if err != nil {
+		t.Errorf("validatePattern rejected valid weighted pattern: %v", err)
+	}
+}
+
 func TestServerRunCancellation(t *testing.T) {
 	srv := New("test-version", testLogger(), &mockBotState{})
 

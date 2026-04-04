@@ -233,6 +233,19 @@ type weGenerateInput struct {
 	Expression string `json:"expression" jsonschema:"mathematical expression, e.g. (x*x + z*z < 100) * stone"`
 }
 
+// weSmoothInput is the input schema for the we-smooth tool.
+type weSmoothInput struct {
+	Iterations int `json:"iterations,omitempty" jsonschema:"number of smooth iterations (default 1)"`
+}
+
+// weNaturalizeInput is the input schema for the we-naturalize tool (no arguments).
+type weNaturalizeInput struct{}
+
+// weOverlayInput is the input schema for the we-overlay tool.
+type weOverlayInput struct {
+	Pattern string `json:"pattern" jsonschema:"block pattern to overlay, e.g. grass_block or 50%stone,50%cobblestone"`
+}
+
 // scanAreaInput is the input schema for the scan-area tool.
 type scanAreaInput struct {
 	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
@@ -412,6 +425,24 @@ func (s *Server) registerTools() {
 		Name:        "we-generate",
 		Description: "Generate blocks from a mathematical expression in the current selection using WorldEdit //generate",
 	}, requireWorldEdit(s.conn, s.handleWEGenerate))
+
+	// we-smooth — requires WorldEdit + selection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-smooth",
+		Description: "Smooth terrain in the current selection using WorldEdit //smooth (default 1 iteration)",
+	}, requireWorldEdit(s.conn, s.handleWESmooth))
+
+	// we-naturalize — requires WorldEdit + selection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-naturalize",
+		Description: "Naturalize terrain in the current selection using WorldEdit //naturalize (grass on top, dirt below, stone deep)",
+	}, requireWorldEdit(s.conn, s.handleWENaturalize))
+
+	// we-overlay — requires WorldEdit + selection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "we-overlay",
+		Description: "Overlay a block pattern on top of existing blocks in the current selection using WorldEdit //overlay",
+	}, requireWorldEdit(s.conn, s.handleWEOverlay))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -778,6 +809,42 @@ func (s *Server) handleWEGenerate(_ context.Context, _ *gomcp.CallToolRequest, i
 		return toolError(fmt.Sprintf("//generate failed: %v", err)), weCommandOutput{}, nil
 	}
 	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//generate: %s", resp)}, nil
+}
+
+// handleWESmooth smooths terrain in the selection.
+func (s *Server) handleWESmooth(_ context.Context, _ *gomcp.CallToolRequest, input weSmoothInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	iterations := input.Iterations
+	if iterations <= 0 {
+		iterations = 1
+	}
+	cmd := fmt.Sprintf("smooth %d", iterations)
+	resp, err := s.conn.RunWECommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("//smooth failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//smooth %d: %s", iterations, resp)}, nil
+}
+
+// handleWENaturalize naturalizes terrain in the selection.
+func (s *Server) handleWENaturalize(_ context.Context, _ *gomcp.CallToolRequest, _ weNaturalizeInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	resp, err := s.conn.RunWECommand("naturalize")
+	if err != nil {
+		return toolError(fmt.Sprintf("//naturalize failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//naturalize: %s", resp)}, nil
+}
+
+// handleWEOverlay overlays a pattern on top of existing blocks in the selection.
+func (s *Server) handleWEOverlay(_ context.Context, _ *gomcp.CallToolRequest, input weOverlayInput) (*gomcp.CallToolResult, weCommandOutput, error) {
+	if err := validatePattern(input.Pattern); err != nil {
+		return toolError(err.Error()), weCommandOutput{}, nil
+	}
+	cmd := "overlay " + input.Pattern
+	resp, err := s.conn.RunWECommand(cmd)
+	if err != nil {
+		return toolError(fmt.Sprintf("//overlay failed: %v", err)), weCommandOutput{}, nil
+	}
+	return nil, weCommandOutput{Response: resp, Message: fmt.Sprintf("//overlay %s: %s", input.Pattern, resp)}, nil
 }
 
 // handleDetectGamemode returns the bot's current game mode.
