@@ -1,6 +1,6 @@
 <h1 align="center">
   <br>
-  clankercraft
+  clankercraft ⛏️
   <br>
 </h1>
 
