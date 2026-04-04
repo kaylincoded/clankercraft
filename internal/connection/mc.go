@@ -3,8 +3,10 @@ package connection
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"net"
 	"sync"
 	"time"
@@ -73,7 +75,22 @@ type BlockInfo struct {
 const (
 	// MaxScanVolume is the maximum number of blocks that can be scanned at once.
 	MaxScanVolume = 10000
+	// MaxFindSigns is the maximum number of signs returned by FindSigns.
+	MaxFindSigns = 50
 )
+
+// SignText holds the text content of a sign's front and back faces.
+type SignText struct {
+	FrontLines [4]string
+	BackLines  [4]string
+}
+
+// SignInfo represents a sign found in the world with its text and position.
+type SignInfo struct {
+	Sign    SignText
+	Block   string
+	X, Y, Z int
+}
 
 // AuthFunc is the function signature for MSA authentication.
 type AuthFunc func(cfg *config.Config, logger *slog.Logger) (*bot.Auth, error)
@@ -158,8 +175,8 @@ func (c *Connection) Connect(ctx context.Context) error {
 			c.logger.Warn("disconnected by server", slog.String("reason", reason.String()))
 			return nil
 		},
-		Teleported: func(x, y, z float64, yaw, pitch float32, flags byte, teleportID int32) error {
-			c.updatePosition(x, y, z, yaw, pitch, flags)
+		Teleported: func(x, y, z float64, yaw, pitch float32, flags int32, teleportID int32) error {
+			c.updatePosition(x, y, z, yaw, pitch, byte(flags))
 			return c.player.AcceptTeleportation(pk.VarInt(teleportID))
 		},
 	})
@@ -599,4 +616,211 @@ func (c *Connection) ScanArea(x1, y1, z1, x2, y2, z2 int) ([]BlockInfo, error) {
 	}
 
 	return blocks, nil
+}
+
+// signNBT represents the NBT structure of a sign block entity (1.20+).
+type signNBT struct {
+	FrontText signSideNBT `nbt:"front_text"`
+	BackText  signSideNBT `nbt:"back_text"`
+}
+
+type signSideNBT struct {
+	Messages []string `nbt:"messages"`
+}
+
+// signEntityType and hangingSignEntityType are the block entity type IDs for signs.
+var (
+	signEntityType        = block.EntityTypes["minecraft:sign"]
+	hangingSignEntityType = block.EntityTypes["minecraft:hanging_sign"]
+)
+
+// parseSignMessages extracts plain text from sign message JSON text components.
+// Handles standard JSON text components ({"text":"..."}) and plain JSON strings ("...").
+// Falls back to empty string on unparseable data rather than exposing raw JSON.
+func parseSignMessages(messages []string) [4]string {
+	var lines [4]string
+	for i := 0; i < 4 && i < len(messages); i++ {
+		if messages[i] == "" {
+			continue
+		}
+		var msg chat.Message
+		if err := json.Unmarshal([]byte(messages[i]), &msg); err != nil {
+			// Try as a plain JSON string literal (e.g., "Hello")
+			var plain string
+			if err2 := json.Unmarshal([]byte(messages[i]), &plain); err2 == nil {
+				lines[i] = plain
+			}
+			// Otherwise leave as empty — don't expose raw JSON to callers
+			continue
+		}
+		lines[i] = msg.ClearString()
+	}
+	return lines
+}
+
+// ReadSign reads the text of a sign block entity at the given coordinates.
+// Returns the sign text and block type name.
+// Returns an error if no sign exists at those coordinates or the chunk is not loaded.
+func (c *Connection) ReadSign(x, y, z int) (SignText, string, error) {
+	c.mu.Lock()
+	w := c.world
+	c.mu.Unlock()
+
+	if w == nil {
+		return SignText{}, "", fmt.Errorf("not connected")
+	}
+
+	chunkPos := level.ChunkPos{int32(x >> 4), int32(z >> 4)}
+	chunk, ok := w.Columns[chunkPos]
+	if !ok {
+		return SignText{}, "", fmt.Errorf("chunk at (%d, %d) not loaded", chunkPos[0], chunkPos[1])
+	}
+
+	localX := x & 0xF
+	localZ := z & 0xF
+
+	for _, be := range chunk.BlockEntity {
+		if be.Type != signEntityType && be.Type != hangingSignEntityType {
+			continue
+		}
+		beX, beZ := be.UnpackXZ()
+		if beX != localX || beZ != localZ || int(be.Y) != y {
+			continue
+		}
+
+		var data signNBT
+		if err := be.Data.Unmarshal(&data); err != nil {
+			return SignText{}, "", fmt.Errorf("failed to read sign NBT: %w", err)
+		}
+
+		blockName, _ := c.BlockAt(x, y, z)
+
+		return SignText{
+			FrontLines: parseSignMessages(data.FrontText.Messages),
+			BackLines:  parseSignMessages(data.BackText.Messages),
+		}, blockName, nil
+	}
+
+	return SignText{}, "", fmt.Errorf("no sign at (%d, %d, %d)", x, y, z)
+}
+
+// signWithDist is used internally for distance-sorted sign results.
+type signWithDist struct {
+	info   SignInfo
+	distSq int64
+}
+
+// FindSigns searches loaded chunks within maxDist blocks of the bot for sign block entities.
+// Returns up to MaxFindSigns results, sorted nearest first.
+func (c *Connection) FindSigns(maxDist int) ([]SignInfo, error) {
+	c.mu.Lock()
+	w := c.world
+	pos := c.pos
+	hasPos := c.hasPos
+	c.mu.Unlock()
+
+	if w == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+	if !hasPos {
+		return nil, fmt.Errorf("position not yet known")
+	}
+
+	if maxDist <= 0 {
+		maxDist = 16
+	}
+	if maxDist > 64 {
+		maxDist = 64
+	}
+
+	botX, botY, botZ := int(pos.X), int(pos.Y), int(pos.Z)
+	chunkRadius := (maxDist >> 4) + 1
+	botCX, botCZ := int32(botX>>4), int32(botZ>>4)
+	maxDistSq := int64(maxDist) * int64(maxDist)
+
+	var found []signWithDist
+	for cx := botCX - int32(chunkRadius); cx <= botCX+int32(chunkRadius); cx++ {
+		for cz := botCZ - int32(chunkRadius); cz <= botCZ+int32(chunkRadius); cz++ {
+			chunk, ok := w.Columns[level.ChunkPos{cx, cz}]
+			if !ok {
+				continue
+			}
+
+			for _, be := range chunk.BlockEntity {
+				if be.Type != signEntityType && be.Type != hangingSignEntityType {
+					continue
+				}
+
+				beX, beZ := be.UnpackXZ()
+				wx := int(cx)*16 + beX
+				wy := int(be.Y)
+				wz := int(cz)*16 + beZ
+
+				dx := int64(wx - botX)
+				dy := int64(wy - botY)
+				dz := int64(wz - botZ)
+				distSq := dx*dx + dy*dy + dz*dz
+				if distSq > maxDistSq {
+					continue
+				}
+
+				var data signNBT
+				if err := be.Data.Unmarshal(&data); err != nil {
+					continue // skip unreadable signs
+				}
+
+				blockName, _ := c.BlockAt(wx, wy, wz)
+
+				found = append(found, signWithDist{
+					info: SignInfo{
+						Sign: SignText{
+							FrontLines: parseSignMessages(data.FrontText.Messages),
+							BackLines:  parseSignMessages(data.BackText.Messages),
+						},
+						Block: blockName,
+						X:     wx,
+						Y:     wy,
+						Z:     wz,
+					},
+					distSq: distSq,
+				})
+			}
+		}
+	}
+
+	sort.Slice(found, func(i, j int) bool {
+		return found[i].distSq < found[j].distSq
+	})
+
+	limit := len(found)
+	if limit > MaxFindSigns {
+		limit = MaxFindSigns
+	}
+
+	signs := make([]SignInfo, limit)
+	for i := 0; i < limit; i++ {
+		signs[i] = found[i].info
+	}
+
+	return signs, nil
+}
+
+// gamemodeNames maps gamemode byte values to human-readable strings.
+var gamemodeNames = [4]string{"survival", "creative", "adventure", "spectator"}
+
+// GetGamemode returns the bot's current game mode as a string.
+func (c *Connection) GetGamemode() string {
+	c.mu.Lock()
+	player := c.player
+	c.mu.Unlock()
+
+	if player == nil {
+		return "unknown"
+	}
+
+	gm := player.Gamemode
+	if int(gm) < len(gamemodeNames) {
+		return gamemodeNames[gm]
+	}
+	return fmt.Sprintf("unknown(%d)", gm)
 }

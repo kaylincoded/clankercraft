@@ -20,6 +20,9 @@ type mockBotState struct {
 	blockAtFn    func(x, y, z int) (string, error)
 	findBlockFn  func(blockType string, maxDist int) (int, int, int, bool, error)
 	scanAreaFn   func(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockInfo, error)
+	readSignFn   func(x, y, z int) (connection.SignText, string, error)
+	findSignsFn  func(maxDist int) ([]connection.SignInfo, error)
+	gamemode     string
 }
 
 func (m *mockBotState) IsConnected() bool { return m.connected }
@@ -46,6 +49,24 @@ func (m *mockBotState) ScanArea(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockI
 		return m.scanAreaFn(x1, y1, z1, x2, y2, z2)
 	}
 	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockBotState) ReadSign(x, y, z int) (connection.SignText, string, error) {
+	if m.readSignFn != nil {
+		return m.readSignFn(x, y, z)
+	}
+	return connection.SignText{}, "", fmt.Errorf("not implemented")
+}
+func (m *mockBotState) FindSigns(maxDist int) ([]connection.SignInfo, error) {
+	if m.findSignsFn != nil {
+		return m.findSignsFn(maxDist)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockBotState) GetGamemode() string {
+	if m.gamemode != "" {
+		return m.gamemode
+	}
+	return "survival"
 }
 
 func TestRequireConnectionRejectsDisconnected(t *testing.T) {

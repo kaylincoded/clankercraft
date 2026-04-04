@@ -522,6 +522,160 @@ func TestScanAreaWhenDisconnected(t *testing.T) {
 	}
 }
 
+// --- read-sign tool tests ---
+
+func TestReadSignWhenConnected(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		readSignFn: func(x, y, z int) (connection.SignText, string, error) {
+			return connection.SignText{
+				FrontLines: [4]string{"Hello", "World", "", ""},
+				BackLines:  [4]string{"Back", "", "", ""},
+			}, "minecraft:oak_sign", nil
+		},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "read-sign",
+		Arguments: map[string]any{"x": 10, "y": 64, "z": -5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(read-sign): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("read-sign returned error: %v", result.Content)
+	}
+}
+
+func TestReadSignNoSignAtPosition(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		readSignFn: func(x, y, z int) (connection.SignText, string, error) {
+			return connection.SignText{}, "", fmt.Errorf("no sign at (%d, %d, %d)", x, y, z)
+		},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "read-sign",
+		Arguments: map[string]any{"x": 10, "y": 64, "z": -5},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(read-sign): %v", err)
+	}
+	if !result.IsError {
+		t.Error("read-sign should return error when no sign at position")
+	}
+}
+
+func TestReadSignWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "read-sign",
+		Arguments: map[string]any{"x": 0, "y": 64, "z": 0},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(read-sign): %v", err)
+	}
+	if !result.IsError {
+		t.Error("read-sign should return error when disconnected")
+	}
+}
+
+// --- find-signs tool tests ---
+
+func TestFindSignsWhenFound(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		findSignsFn: func(maxDist int) ([]connection.SignInfo, error) {
+			return []connection.SignInfo{
+				{
+					Sign:  connection.SignText{FrontLines: [4]string{"Shop", "Open", "", ""}},
+					Block: "minecraft:oak_sign",
+					X:     5, Y: 64, Z: 10,
+				},
+			}, nil
+		},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "find-signs",
+		Arguments: map[string]any{"maxDistance": 32},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(find-signs): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("find-signs returned error: %v", result.Content)
+	}
+}
+
+func TestFindSignsNoneFound(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		findSignsFn: func(maxDist int) ([]connection.SignInfo, error) {
+			return nil, nil
+		},
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "find-signs",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(find-signs): %v", err)
+	}
+	if result.IsError {
+		t.Error("find-signs should not return error when none found")
+	}
+}
+
+func TestFindSignsWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "find-signs",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(find-signs): %v", err)
+	}
+	if !result.IsError {
+		t.Error("find-signs should return error when disconnected")
+	}
+}
+
+// --- detect-gamemode tool tests ---
+
+func TestDetectGamemodeWhenConnected(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		gamemode:  "creative",
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "detect-gamemode",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(detect-gamemode): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("detect-gamemode returned error: %v", result.Content)
+	}
+}
+
+func TestDetectGamemodeWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "detect-gamemode",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(detect-gamemode): %v", err)
+	}
+	if !result.IsError {
+		t.Error("detect-gamemode should return error when disconnected")
+	}
+}
+
 func TestServerRunCancellation(t *testing.T) {
 	srv := New("test-version", testLogger(), &mockBotState{})
 

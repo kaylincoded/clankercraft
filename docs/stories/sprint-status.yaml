@@ -61,7 +61,7 @@ development_status:
   2-4-position-movement-tools: done
   2-5-block-query-tools: done
   2-6-area-scanning-tool: done
-  2-7-sign-game-state-tools: backlog
+  2-7-sign-game-state-tools: done
   epic-2-retrospective: optional
 
   # Epic 3: Construction Engine & WorldEdit Integration

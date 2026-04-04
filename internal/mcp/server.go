@@ -87,6 +87,51 @@ type findBlockOutput struct {
 	Message string `json:"message"`
 }
 
+// readSignInput is the input schema for the read-sign tool.
+type readSignInput struct {
+	X int `json:"x" jsonschema:"X coordinate of the sign"`
+	Y int `json:"y" jsonschema:"Y coordinate of the sign"`
+	Z int `json:"z" jsonschema:"Z coordinate of the sign"`
+}
+
+// readSignOutput is the output schema for the read-sign tool.
+type readSignOutput struct {
+	Front   [4]string `json:"front"`
+	Back    [4]string `json:"back"`
+	Block   string    `json:"block,omitempty"`
+	Message string    `json:"message"`
+}
+
+// findSignsInput is the input schema for the find-signs tool.
+type findSignsInput struct {
+	MaxDistance int `json:"maxDistance,omitempty" jsonschema:"max search distance in blocks (default 16, max 64)"`
+}
+
+// findSignsSign is a single sign in the find-signs output.
+type findSignsSign struct {
+	Front [4]string `json:"front"`
+	Back  [4]string `json:"back"`
+	Block string    `json:"block"`
+	X     int       `json:"x"`
+	Y     int       `json:"y"`
+	Z     int       `json:"z"`
+}
+
+// findSignsOutput is the output schema for the find-signs tool.
+type findSignsOutput struct {
+	Signs   []findSignsSign `json:"signs"`
+	Count   int             `json:"count"`
+	Message string          `json:"message"`
+}
+
+// detectGamemodeInput is the input schema for the detect-gamemode tool (no arguments).
+type detectGamemodeInput struct{}
+
+// detectGamemodeOutput is the output schema for the detect-gamemode tool.
+type detectGamemodeOutput struct {
+	Gamemode string `json:"gamemode"`
+}
+
 // scanAreaInput is the input schema for the scan-area tool.
 type scanAreaInput struct {
 	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
@@ -176,6 +221,24 @@ func (s *Server) registerTools() {
 		Name:        "scan-area",
 		Description: "Scan a rectangular region and return all non-air blocks with their types and positions (max 10,000 blocks)",
 	}, requireConnection(s.conn, s.handleScanArea))
+
+	// read-sign — requires connection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "read-sign",
+		Description: "Read the text on a sign at the specified coordinates (returns front and back text)",
+	}, requireConnection(s.conn, s.handleReadSign))
+
+	// find-signs — requires connection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "find-signs",
+		Description: "Find all signs within a distance of the bot and return their text and positions (max 50 signs)",
+	}, requireConnection(s.conn, s.handleFindSigns))
+
+	// detect-gamemode — requires connection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "detect-gamemode",
+		Description: "Get the bot's current game mode (survival, creative, adventure, spectator)",
+	}, requireConnection(s.conn, s.handleDetectGamemode))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -287,6 +350,54 @@ func (s *Server) handleScanArea(_ context.Context, _ *gomcp.CallToolRequest, inp
 		Blocks:  result,
 		Count:   len(result),
 		Message: fmt.Sprintf("scanned region, found %d non-air blocks", len(result)),
+	}, nil
+}
+
+// handleReadSign reads the text of a sign at the given coordinates.
+func (s *Server) handleReadSign(_ context.Context, _ *gomcp.CallToolRequest, input readSignInput) (*gomcp.CallToolResult, readSignOutput, error) {
+	sign, blockName, err := s.conn.ReadSign(input.X, input.Y, input.Z)
+	if err != nil {
+		return toolError(err.Error()), readSignOutput{}, nil
+	}
+
+	return nil, readSignOutput{
+		Front:   sign.FrontLines,
+		Back:    sign.BackLines,
+		Block:   blockName,
+		Message: fmt.Sprintf("read sign at (%d, %d, %d)", input.X, input.Y, input.Z),
+	}, nil
+}
+
+// handleFindSigns searches for signs near the bot.
+func (s *Server) handleFindSigns(_ context.Context, _ *gomcp.CallToolRequest, input findSignsInput) (*gomcp.CallToolResult, findSignsOutput, error) {
+	signs, err := s.conn.FindSigns(input.MaxDistance)
+	if err != nil {
+		return toolError(err.Error()), findSignsOutput{}, nil
+	}
+
+	result := make([]findSignsSign, len(signs))
+	for i, si := range signs {
+		result[i] = findSignsSign{
+			Front: si.Sign.FrontLines,
+			Back:  si.Sign.BackLines,
+			Block: si.Block,
+			X:     si.X,
+			Y:     si.Y,
+			Z:     si.Z,
+		}
+	}
+
+	return nil, findSignsOutput{
+		Signs:   result,
+		Count:   len(result),
+		Message: fmt.Sprintf("found %d signs", len(result)),
+	}, nil
+}
+
+// handleDetectGamemode returns the bot's current game mode.
+func (s *Server) handleDetectGamemode(_ context.Context, _ *gomcp.CallToolRequest, _ detectGamemodeInput) (*gomcp.CallToolResult, detectGamemodeOutput, error) {
+	return nil, detectGamemodeOutput{
+		Gamemode: s.conn.GetGamemode(),
 	}, nil
 }
 

@@ -21,6 +21,9 @@ type BotState interface {
 	BlockAt(x, y, z int) (string, error)
 	FindBlock(blockType string, maxDist int) (bx, by, bz int, found bool, err error)
 	ScanArea(x1, y1, z1, x2, y2, z2 int) ([]connection.BlockInfo, error)
+	ReadSign(x, y, z int) (connection.SignText, string, error)
+	FindSigns(maxDist int) ([]connection.SignInfo, error)
+	GetGamemode() string
 }
 
 // requireConnection wraps a typed tool handler with a connection check.

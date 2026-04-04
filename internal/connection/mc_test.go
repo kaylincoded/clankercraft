@@ -486,6 +486,84 @@ func TestUpdatePositionMixedFlags(t *testing.T) {
 	}
 }
 
+// --- parseSignMessages tests ---
+
+func TestParseSignMessagesJSONTextComponent(t *testing.T) {
+	messages := []string{
+		`{"text":"Hello"}`,
+		`{"text":"World"}`,
+		`{"text":""}`,
+		`{"text":""}`,
+	}
+	lines := parseSignMessages(messages)
+	if lines[0] != "Hello" {
+		t.Errorf("line 0 = %q, want %q", lines[0], "Hello")
+	}
+	if lines[1] != "World" {
+		t.Errorf("line 1 = %q, want %q", lines[1], "World")
+	}
+	if lines[2] != "" {
+		t.Errorf("line 2 = %q, want empty", lines[2])
+	}
+}
+
+func TestParseSignMessagesPlainJSONString(t *testing.T) {
+	// A plain JSON string literal (not a text component object)
+	messages := []string{`"Hello plain"`, `""`, ``, ``}
+	lines := parseSignMessages(messages)
+	if lines[0] != "Hello plain" {
+		t.Errorf("line 0 = %q, want %q", lines[0], "Hello plain")
+	}
+	if lines[1] != "" {
+		t.Errorf("line 1 = %q, want empty", lines[1])
+	}
+}
+
+func TestParseSignMessagesComplexTextComponent(t *testing.T) {
+	messages := []string{
+		`{"text":"","extra":[{"text":"Colored","color":"red"}]}`,
+		`{"text":""}`,
+		`{"text":""}`,
+		`{"text":""}`,
+	}
+	lines := parseSignMessages(messages)
+	if lines[0] != "Colored" {
+		t.Errorf("line 0 = %q, want %q", lines[0], "Colored")
+	}
+}
+
+func TestParseSignMessagesMalformedFallsToEmpty(t *testing.T) {
+	messages := []string{`not valid json {`, `{"text":"OK"}`, ``, ``}
+	lines := parseSignMessages(messages)
+	if lines[0] != "" {
+		t.Errorf("line 0 = %q, want empty for malformed JSON", lines[0])
+	}
+	if lines[1] != "OK" {
+		t.Errorf("line 1 = %q, want %q", lines[1], "OK")
+	}
+}
+
+func TestParseSignMessagesFewerThanFour(t *testing.T) {
+	messages := []string{`{"text":"Only one"}`}
+	lines := parseSignMessages(messages)
+	if lines[0] != "Only one" {
+		t.Errorf("line 0 = %q, want %q", lines[0], "Only one")
+	}
+	for i := 1; i < 4; i++ {
+		if lines[i] != "" {
+			t.Errorf("line %d = %q, want empty", i, lines[i])
+		}
+	}
+}
+
+func TestGetGamemodeValues(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+	// No player set — should return "unknown"
+	if gm := conn.GetGamemode(); gm != "unknown" {
+		t.Errorf("GetGamemode() without player = %q, want %q", gm, "unknown")
+	}
+}
+
 func TestResetPositionOnDisconnect(t *testing.T) {
 	cfg := &config.Config{Host: "localhost", Port: 25565}
 	conn := New(cfg, testLogger())
