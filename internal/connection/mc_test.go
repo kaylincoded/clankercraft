@@ -12,6 +12,7 @@ import (
 	"github.com/Tnze/go-mc/bot"
 	"github.com/Tnze/go-mc/offline"
 	"github.com/kaylincoded/clankercraft/internal/config"
+	"github.com/kaylincoded/clankercraft/internal/engine"
 )
 
 func testLogger() *slog.Logger {
@@ -553,6 +554,79 @@ func TestParseSignMessagesFewerThanFour(t *testing.T) {
 		if lines[i] != "" {
 			t.Errorf("line %d = %q, want empty", i, lines[i])
 		}
+	}
+}
+
+// --- Chat listener and tier detection tests ---
+
+func TestDispatchChatToListeners(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	ch := conn.listenChat()
+	conn.dispatchChat("hello world")
+
+	select {
+	case msg := <-ch:
+		if msg != "hello world" {
+			t.Errorf("got %q, want %q", msg, "hello world")
+		}
+	default:
+		t.Error("listener did not receive message")
+	}
+
+	conn.unlistenChat(ch)
+}
+
+func TestUnlistenRemovesListener(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	ch := conn.listenChat()
+	conn.unlistenChat(ch)
+	conn.dispatchChat("should not arrive")
+
+	select {
+	case msg := <-ch:
+		t.Errorf("listener received %q after unlisten", msg)
+	default:
+		// expected
+	}
+}
+
+func TestParseTierFromChat(t *testing.T) {
+	tests := []struct {
+		msg      string
+		wantTier engine.Tier
+		wantOK   bool
+	}{
+		{"WorldEdit version 7.4.0", engine.TierWorldEdit, true},
+		{"WorldEdit version 7.4.0;4395bc1", engine.TierWorldEdit, true},
+		{"FastAsyncWorldEdit version 2.12.3", engine.TierFAWE, true},
+		{"FAWE version 2.12.3", engine.TierFAWE, true},
+		{"Server running Paper 1.21.11", engine.TierUnknown, false},
+		{"Unknown command", engine.TierUnknown, false},
+		{"", engine.TierUnknown, false},
+		{"worldedit version 7.4.0", engine.TierWorldEdit, true}, // case insensitive
+		{"This server uses FastAsyncWorldEdit (FAWE)", engine.TierFAWE, true},
+	}
+	for _, tt := range tests {
+		tier, ok := parseTierFromChat(tt.msg)
+		if tier != tt.wantTier || ok != tt.wantOK {
+			t.Errorf("parseTierFromChat(%q) = (%v, %v), want (%v, %v)", tt.msg, tier, ok, tt.wantTier, tt.wantOK)
+		}
+	}
+}
+
+func TestResetTierOnDisconnect(t *testing.T) {
+	conn := New(&config.Config{Host: "localhost", Port: 25565}, testLogger())
+
+	conn.mu.Lock()
+	conn.tier = engine.TierWorldEdit
+	conn.mu.Unlock()
+
+	conn.resetTier()
+
+	if tier := conn.GetTier(); tier != engine.TierUnknown {
+		t.Errorf("tier after reset = %v, want TierUnknown", tier)
 	}
 }
 

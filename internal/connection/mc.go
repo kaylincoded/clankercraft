@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"net"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ import (
 	pk "github.com/Tnze/go-mc/net/packet"
 	"github.com/Tnze/go-mc/offline"
 	"github.com/kaylincoded/clankercraft/internal/config"
+	"github.com/kaylincoded/clankercraft/internal/engine"
 )
 
 // ConnState represents the connection state machine states.
@@ -92,6 +94,14 @@ type SignInfo struct {
 	X, Y, Z int
 }
 
+// chatListener is a one-shot system chat message listener.
+type chatListener struct {
+	ch chan string
+}
+
+// DetectTimeout is how long to wait for a //version response before assuming vanilla.
+const DetectTimeout = 3 * time.Second
+
 // AuthFunc is the function signature for MSA authentication.
 type AuthFunc func(cfg *config.Config, logger *slog.Logger) (*bot.Auth, error)
 
@@ -111,11 +121,13 @@ type Connection struct {
 	backoffFn       func(attempt int) time.Duration    // injectable for testing backoff
 	shutdownTimeout time.Duration                      // injectable for testing Close drain
 
-	mu     sync.Mutex
-	state  ConnState
-	pos    Position
-	hasPos bool         // true after first position update from server
-	doneCh chan struct{} // closed when HandleGame goroutine exits
+	mu             sync.Mutex
+	state          ConnState
+	pos            Position
+	hasPos         bool             // true after first position update from server
+	doneCh         chan struct{}     // closed when HandleGame goroutine exits
+	tier           engine.Tier      // detected WorldEdit capability tier
+	chatListeners  []chatListener   // one-shot system chat listeners
 }
 
 // New creates a new Connection configured from the given config.
@@ -167,11 +179,13 @@ func (c *Connection) Connect(ctx context.Context) error {
 		GameStart: func() error {
 			c.setState(StateConnected)
 			c.logger.Info("spawned in world", slog.String("server", c.Address()))
+			go c.detectTier()
 			return nil
 		},
 		Disconnect: func(reason chat.Message) error {
 			c.setState(StateDisconnected)
 			c.resetPosition()
+			c.resetTier()
 			c.logger.Warn("disconnected by server", slog.String("reason", reason.String()))
 			return nil
 		},
@@ -190,7 +204,9 @@ func (c *Connection) Connect(ctx context.Context) error {
 	// Chat message handling
 	c.msgMgr = msg.New(client, c.player, c.plist, msg.EventsHandler{
 		SystemChat: func(m chat.Message, overlay bool) error {
-			c.logger.Info("chat:system", slog.String("message", m.String()), slog.Bool("overlay", overlay))
+			text := m.ClearString()
+			c.logger.Info("chat:system", slog.String("message", text), slog.Bool("overlay", overlay))
+			c.dispatchChat(text)
 			return nil
 		},
 		PlayerChatMessage: func(m chat.Message, validated bool) error {
@@ -823,4 +839,120 @@ func (c *Connection) GetGamemode() string {
 		return gamemodeNames[gm]
 	}
 	return fmt.Sprintf("unknown(%d)", gm)
+}
+
+// dispatchChat sends a system chat message to all registered listeners.
+func (c *Connection) dispatchChat(text string) {
+	c.mu.Lock()
+	listeners := make([]chatListener, len(c.chatListeners))
+	copy(listeners, c.chatListeners)
+	c.mu.Unlock()
+
+	for _, l := range listeners {
+		select {
+		case l.ch <- text:
+		default:
+		}
+	}
+}
+
+// listenChat registers a listener that receives system chat messages.
+// All system chat messages are broadcast to all listeners; callers should
+// filter for relevant content. Call unlistenChat when done to avoid leaking.
+func (c *Connection) listenChat() chan string {
+	ch := make(chan string, 32)
+	c.mu.Lock()
+	c.chatListeners = append(c.chatListeners, chatListener{ch: ch})
+	c.mu.Unlock()
+	return ch
+}
+
+// unlistenChat removes a previously registered chat listener.
+func (c *Connection) unlistenChat(ch chan string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, l := range c.chatListeners {
+		if l.ch == ch {
+			c.chatListeners = append(c.chatListeners[:i], c.chatListeners[i+1:]...)
+			return
+		}
+	}
+}
+
+// SendCommand sends a chat command to the server. The command string is sent
+// via the ServerboundChatCommand packet, which the server interprets with an
+// implicit leading /. So SendCommand("version") sends /version, and
+// SendCommand("/version") sends //version (used for WorldEdit commands).
+func (c *Connection) SendCommand(command string) error {
+	c.mu.Lock()
+	mgr := c.msgMgr
+	c.mu.Unlock()
+
+	if mgr == nil {
+		return fmt.Errorf("not connected")
+	}
+	return mgr.SendCommand(command)
+}
+
+// GetTier returns the detected WorldEdit capability tier.
+func (c *Connection) GetTier() engine.Tier {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.tier
+}
+
+// resetTier clears the detected tier (called on disconnect).
+func (c *Connection) resetTier() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tier = engine.TierUnknown
+}
+
+// parseTierFromChat checks if a chat message indicates a WorldEdit tier.
+// Returns the detected tier and true if a match was found, or TierUnknown and false otherwise.
+func parseTierFromChat(msg string) (engine.Tier, bool) {
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "fastasyncworldedit") || strings.Contains(lower, "fawe") {
+		return engine.TierFAWE, true
+	}
+	if strings.Contains(lower, "worldedit") {
+		return engine.TierWorldEdit, true
+	}
+	return engine.TierUnknown, false
+}
+
+// detectTier sends //version and parses the response to determine the WorldEdit tier.
+func (c *Connection) detectTier() {
+	ch := c.listenChat()
+	defer c.unlistenChat(ch)
+
+	if err := c.SendCommand("/version"); err != nil {
+		c.logger.Warn("failed to send //version for tier detection", slog.String("error", err.Error()))
+		c.mu.Lock()
+		c.tier = engine.TierVanilla
+		c.mu.Unlock()
+		return
+	}
+
+	timeout := time.After(DetectTimeout)
+
+	for {
+		select {
+		case msg := <-ch:
+			if tier, ok := parseTierFromChat(msg); ok {
+				c.mu.Lock()
+				c.tier = tier
+				c.mu.Unlock()
+				c.logger.Info("worldedit tier detected", slog.String("tier", tier.String()))
+				return
+			}
+			continue
+		case <-timeout:
+			c.mu.Lock()
+			c.tier = engine.TierVanilla
+			c.mu.Unlock()
+			c.logger.Info("worldedit tier detected", slog.String("tier", engine.TierVanilla.String()))
+			return
+		}
+	}
 }

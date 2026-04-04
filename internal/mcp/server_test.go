@@ -10,6 +10,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/kaylincoded/clankercraft/internal/connection"
+	"github.com/kaylincoded/clankercraft/internal/engine"
 )
 
 func testLogger() *slog.Logger {
@@ -673,6 +674,56 @@ func TestDetectGamemodeWhenDisconnected(t *testing.T) {
 	}
 	if !result.IsError {
 		t.Error("detect-gamemode should return error when disconnected")
+	}
+}
+
+// --- detect-worldedit tool tests ---
+
+func TestDetectWorldeditReturnsWorldEdit(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierWorldEdit,
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "detect-worldedit",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(detect-worldedit): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("detect-worldedit returned error: %v", result.Content)
+	}
+}
+
+func TestDetectWorldeditReturnsFAWE(t *testing.T) {
+	session := testSession(t, &mockBotState{
+		connected: true,
+		tier:      engine.TierFAWE,
+	})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "detect-worldedit",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(detect-worldedit): %v", err)
+	}
+	if result.IsError {
+		t.Errorf("detect-worldedit returned error: %v", result.Content)
+	}
+}
+
+func TestDetectWorldeditWhenDisconnected(t *testing.T) {
+	session := testSession(t, &mockBotState{connected: false})
+
+	result, err := session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name: "detect-worldedit",
+	})
+	if err != nil {
+		t.Fatalf("CallTool(detect-worldedit): %v", err)
+	}
+	if !result.IsError {
+		t.Error("detect-worldedit should return error when disconnected")
 	}
 }
 

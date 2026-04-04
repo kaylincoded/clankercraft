@@ -5,6 +5,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/kaylincoded/clankercraft/internal/connection"
+	"github.com/kaylincoded/clankercraft/internal/engine"
 )
 
 // ConnChecker abstracts the connection state check for testability.
@@ -24,6 +25,7 @@ type BotState interface {
 	ReadSign(x, y, z int) (connection.SignText, string, error)
 	FindSigns(maxDist int) ([]connection.SignInfo, error)
 	GetGamemode() string
+	GetTier() engine.Tier
 }
 
 // requireConnection wraps a typed tool handler with a connection check.

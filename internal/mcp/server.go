@@ -132,6 +132,15 @@ type detectGamemodeOutput struct {
 	Gamemode string `json:"gamemode"`
 }
 
+// detectWorldeditInput is the input schema for the detect-worldedit tool (no arguments).
+type detectWorldeditInput struct{}
+
+// detectWorldeditOutput is the output schema for the detect-worldedit tool.
+type detectWorldeditOutput struct {
+	Tier    string `json:"tier"`
+	Message string `json:"message"`
+}
+
 // scanAreaInput is the input schema for the scan-area tool.
 type scanAreaInput struct {
 	X1 int `json:"x1" jsonschema:"first corner X coordinate"`
@@ -239,6 +248,12 @@ func (s *Server) registerTools() {
 		Name:        "detect-gamemode",
 		Description: "Get the bot's current game mode (survival, creative, adventure, spectator)",
 	}, requireConnection(s.conn, s.handleDetectGamemode))
+
+	// detect-worldedit — requires connection
+	gomcp.AddTool(s.server, &gomcp.Tool{
+		Name:        "detect-worldedit",
+		Description: "Get the server's WorldEdit capability tier (fawe, worldedit, vanilla, or unknown if still detecting)",
+	}, requireConnection(s.conn, s.handleDetectWorldedit))
 }
 
 // handlePing is a smoke-test tool that returns "pong".
@@ -398,6 +413,15 @@ func (s *Server) handleFindSigns(_ context.Context, _ *gomcp.CallToolRequest, in
 func (s *Server) handleDetectGamemode(_ context.Context, _ *gomcp.CallToolRequest, _ detectGamemodeInput) (*gomcp.CallToolResult, detectGamemodeOutput, error) {
 	return nil, detectGamemodeOutput{
 		Gamemode: s.conn.GetGamemode(),
+	}, nil
+}
+
+// handleDetectWorldedit returns the server's WorldEdit capability tier.
+func (s *Server) handleDetectWorldedit(_ context.Context, _ *gomcp.CallToolRequest, _ detectWorldeditInput) (*gomcp.CallToolResult, detectWorldeditOutput, error) {
+	tier := s.conn.GetTier()
+	return nil, detectWorldeditOutput{
+		Tier:    tier.String(),
+		Message: fmt.Sprintf("worldedit tier: %s", tier.String()),
 	}, nil
 }
 

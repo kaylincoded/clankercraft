@@ -7,6 +7,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/kaylincoded/clankercraft/internal/connection"
+	"github.com/kaylincoded/clankercraft/internal/engine"
 )
 
 // mockBotState satisfies BotState for testing.
@@ -23,6 +24,7 @@ type mockBotState struct {
 	readSignFn   func(x, y, z int) (connection.SignText, string, error)
 	findSignsFn  func(maxDist int) ([]connection.SignInfo, error)
 	gamemode     string
+	tier         engine.Tier
 }
 
 func (m *mockBotState) IsConnected() bool { return m.connected }
@@ -67,6 +69,9 @@ func (m *mockBotState) GetGamemode() string {
 		return m.gamemode
 	}
 	return "survival"
+}
+func (m *mockBotState) GetTier() engine.Tier {
+	return m.tier
 }
 
 func TestRequireConnectionRejectsDisconnected(t *testing.T) {
