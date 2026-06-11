@@ -6,19 +6,19 @@ replace github.com/Tnze/go-mc => github.com/mj41/go-mc v0.0.0-20260219133027-bc1
 
 require (
 	github.com/Tnze/go-mc v1.20.3-0.20241224032005-539b4a3a7f03
+	github.com/anthropics/anthropic-sdk-go v1.30.0
+	github.com/charmbracelet/log v1.0.0
 	github.com/maxsupermanhd/go-mc-ms-auth v0.0.0-20230820124717-22f4d907eac4
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	golang.org/x/sync v0.20.0
+	golang.org/x/sync v0.21.0
 )
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.30.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
-	github.com/charmbracelet/log v1.0.0 // indirect
 	github.com/charmbracelet/x/ansi v0.8.0 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
